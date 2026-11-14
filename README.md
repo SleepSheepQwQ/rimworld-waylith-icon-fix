@@ -93,6 +93,13 @@ cat AgentTouchFix/About.xml \
   | rish -c 'run-as com.ports1de.waylith sh -c "cat > files/game/Mods/agenttouchfix/About/About.xml"'
 ```
 
+
+> `packageId` 是 **`sleepsheep.waylith.agenttouchfix`**：`ModsConfig.xml` 里 `<li>` 的值必须与它完全一致，
+> 否则游戏会在启动时把这个模组静默移出 `activeMods`（表现为"装了但完全没反应"）。
+
+Поле `packageId` — **`sleepsheep.waylith.agenttouchfix`**; значение в `<li>` файла `ModsConfig.xml` должно
+совпадать с ним, иначе игра молча удалит мод из `activeMods` при запуске.
+
 > `About.xml` **必须**位于 `<mod>/About/About.xml`，且内容中不能出现未转义的 `<`、`&`
 > （否则 `System.Xml.XmlException` → `packageId` 为空 → 整个模组不加载，表现为"补丁完全没生效"）。
 
