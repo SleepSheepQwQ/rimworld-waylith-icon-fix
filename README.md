@@ -146,6 +146,10 @@ dotnet test tests/TexSt/TexSt.csproj -c Release     # 20 条单测（纯逻辑�
 dotnet build mod/AgentTouchFix.csproj -c Release    # 产出 AgentTouchFix.dll
 ```
 
+**默认构建 = 图标修复**（纯反射实现，不需要任何游戏程序集）。
+触控/鼠标层的补丁在 `input-layer/`，它们在编译期直接使用游戏的 `Thing`/`IntVec3`/`Vector3` 等类型，
+因此需要自备引用程序集，见 `input-layer/README.md`。
+
 编译不依赖任何游戏 DLL：
 
 - `stubs/GameStubs` 提供一个 **`AssemblyName=Assembly-CSharp`** 的最小桩（只有 `Verse.Log` 与
@@ -176,8 +180,9 @@ bash vk/run_cases.sh build
 ## 9. 目录结构 / Структура
 
 ```
-mod/Source/            模组源码（输入层 + IconFieldFix）
+mod/Source/            图标修复（Bootstrap / IconFieldFix / IconPathDecision / Refl）
 mod/About/About.xml    模组元数据
+input-layer/           可选的触控/鼠标层修复（需要游戏程序集，默认不编译）
 stubs/GameStubs/       Assembly-CSharp 编译期桩（不随仓库分发游戏 DLL）
 tests/TexSt/           20 条 xunit 单测
 vk/                    Vulkan 离屏复现器 + 合成贴图生成脚本
