@@ -11,6 +11,24 @@ No APK modification, no repacking, no re-signing — everything is applied at ru
 
 ---
 
+## 0. 下载 / Скачать
+
+| 方式 | 适合谁 | 链接 |
+|---|---|---|
+| **Releases（推荐）** | 只想用，不想编译 | [v2.4.0 → `AgentTouchFix-2.4.0.zip`](https://github.com/SleepSheepQwQ/rimworld-waylith-icon-fix/releases/latest) |
+| **Actions 产物** | 想拿最新一次构建 | 仓库 `Actions` → `build` → 最新一次运行 → 底部 `Artifacts` → `AgentTouchFix`（需登录 GitHub） |
+| **源码构建** | 想改代码 | `dotnet build mod/AgentTouchFix.csproj -c Release`，见第 7 节 |
+
+**推荐路径 / Рекомендуемый путь:** 下载 `AgentTouchFix-2.4.0.zip` → 解压得到 `AgentTouchFix/{About,Assemblies}` →
+整个 `AgentTouchFix` 文件夹放进游戏的 `Mods/` → 在「Mod 配置」中启用 → 重启游戏。
+
+Скачайте `AgentTouchFix-2.4.0.zip`, распакуйте, положите папку `AgentTouchFix` в `Mods/`,
+включите мод в «Mod config» и перезапустите игру.
+
+**不需要的**：不需要 GitHub 账号（Releases 匿名可下）、不需要 root、不需要改 APK。
+
+---
+
 ## 1. 症状 / Симптомы
 
 **中文**
