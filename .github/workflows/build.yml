@@ -1,0 +1,37 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Unit tests (shader math + icon routing)
+        run: dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
+
+      - name: Build the mod
+        run: dotnet build mod/AgentTouchFix.csproj -c Release -v minimal
+
+      - name: Package
+        run: |
+          DLL=$(find mod/bin/Release -name AgentTouchFix.dll | head -1)
+          test -n "$DLL" || { echo "AgentTouchFix.dll not found"; exit 1; }
+          mkdir -p dist/AgentTouchFix/Assemblies
+          cp mod/About/About.xml dist/AgentTouchFix/
+          cp "$DLL" dist/AgentTouchFix/Assemblies/
+          cd dist && zip -qr ../AgentTouchFix.zip AgentTouchFix
+          cd .. && ls -l AgentTouchFix.zip && stat -c '%n %s bytes' dist/AgentTouchFix/Assemblies/AgentTouchFix.dll
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentTouchFix
+          path: AgentTouchFix.zip

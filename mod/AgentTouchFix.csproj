@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>AgentTouchFix</AssemblyName>
+    <RootNamespace>AgentTouchFix</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <Optimize>true</Optimize>
+    <!-- the SDK would otherwise append +<git sha>, making builds irreproducible -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Version>2.4.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Harmony (0Harmony): the game loads its own copy, this is a compile-time reference only -->
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- reference-only game stub: assembly name matches the shipped Assembly-CSharp -->
+    <ProjectReference Include="../stubs/GameStubs/GameStubs.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

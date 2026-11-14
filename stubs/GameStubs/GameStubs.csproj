@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Reference-only stand-in for the game's Assembly-CSharp.
+       It carries the assembly name the game ships, so the mod's compiled references bind to the real
+       Assembly-CSharp at runtime (Private=false: this stub is never shipped or loaded).
+       Keep it to the members the mod actually compiles against. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Assembly-CSharp</AssemblyName>
+    <RootNamespace>Verse</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
