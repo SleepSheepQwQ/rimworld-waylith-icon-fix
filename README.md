@@ -63,6 +63,8 @@ No APK modification, no repacking, no re-signing — everything is applied at ru
    - шейдер `CutoutComplex.frag.glsl`: `uv = vUv * _MainTex_ST.zw + _MainTex_ST.xy` (**offset в xy, scale в zw** — обратно юнитивскому порядку); при вырожденных параметрах сэмпл попадает в прозрачный угол → `discard` → не рисуется ничего
    - `ImGuiGuiBackend.DrawTextureWithMaterial()` при `passMaterial == null` или вырожденном `rect` просто выходит, без диагностики
 
+相关模组：**[AgentDevTools](https://github.com/SleepSheepQwQ/rimworld-waylith-devtools)** —— 开发者工具的精确点击（输入路径）。两者互不引用，可同时启用。
+
 完整分析（含 CI 量化证据）：[`docs/report-zh-ru.md`](docs/report-zh-ru.md)
 
 ---
