@@ -76,7 +76,7 @@ namespace AgentTouchFix
                 string def = Str(Prop(__0, "def"), "defName");
                 object gd = Prop(Prop(__0, "def"), "graphicData");
                 string tex = gd == null ? "?" : (Prop(gd, "texPath") as string ?? "?");
-                string graphic = Prop(Prop(__2, "def"), "defName");
+                string graphic = Prop(Prop(__2, "def"), "defName") as string ?? "?";
                 if (Once("d:" + def + "|" + tex))
                     W("D", "carried def=" + def + " texPath=" + tex + " thing=" + graphic);
                 Summary();
