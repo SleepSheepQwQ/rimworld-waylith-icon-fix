@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="../../mod/Source/TexStMath.cs" Link="TexStMath.cs" />
     <Compile Include="../../mod/Source/IconPathDecision.cs" Link="IconPathDecision.cs" />
+    <Compile Include="../../mod/Source/EvictRules.cs" Link="EvictRules.cs" />
   </ItemGroup>
 
   <ItemGroup>
