@@ -293,8 +293,16 @@ namespace AgentTouchFix
             catch { }
             if (total <= 0) total = 3L * 1024L * 1024L * 1024L;
             long cap = (long)(total * 0.45);
-            if (cap < 512L << 20) cap = 512L << 20;
+            // A fixed fraction alone is wrong on small phones: if the game is already using more
+            // than that before any texture work, the ceiling would immediately force hard evictions.
+            // So never set the ceiling below "what we already use + 384 MiB of headroom".
+            long baseline = Rss();
+            long floor = baseline > 0 ? baseline + (384L << 20) : (768L << 20);
+            if (cap < floor) cap = floor;
+            if (cap < 768L << 20) cap = 768L << 20;
             if (cap > 3L << 30) cap = 3L << 30;
+            Refl.Info(Log + "budget: total=" + (total >> 20) + "MiB baseline=" + (baseline >> 20)
+                      + "MiB -> cap=" + (cap >> 20) + "MiB");
             return cap;
         }
 
