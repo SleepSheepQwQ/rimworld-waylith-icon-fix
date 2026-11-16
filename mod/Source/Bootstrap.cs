@@ -30,6 +30,7 @@ namespace AgentTouchFix
 
                 IconFieldFix.Init(mode);
                 IconFieldFix.Install();
+                Probe.Init();
 
                 Refl.Info("BUILD v41-slim (2.4.0) - build-menu icon repair"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time)");
