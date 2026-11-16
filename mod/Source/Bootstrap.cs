@@ -31,6 +31,12 @@ namespace AgentTouchFix
                 IconFieldFix.Init(mode);
                 IconFieldFix.Install();
 
+                // Diagnostics / candidate fix for world textures (held weapons):
+                //   agenttouchfix.weapdiag = on  -> log one line per weapon def
+                //   agenttouchfix.texkeep  = on  -> suppress Texture2D.Evict() entirely
+                if (WorldTexDiag.Diag) WorldTexDiag.InstallWeaponProbe();
+                if (WorldTexDiag.Keep) WorldTexDiag.Install();
+
                 Refl.Info("BUILD v41-slim (2.4.0) - build-menu icon repair"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time)");
             }
