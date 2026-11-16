@@ -230,6 +230,34 @@ bash vk/run_cases.sh build
 贴图是 `vk/assets/gen_assets.py` 现场生成的合成图（不透明 + 最后一个 texel 透明，复刻真实贴图形态），
 仓库中**不包含任何游戏美术资源**。
 
+## 8b. 单元测试 / Юнит-тесты
+
+CI 上跑两组，全部是纯逻辑，不需要游戏程序集、不需要设备：
+
+| 套件 | 条数 | 覆盖 |
+|---|---|---|
+| `TexStMath` / `IconPathDecision` | 20 | 着色器 ST 数学、图标材质路由决策 |
+| `EvictRules` | 26 | 驱逐策略 |
+
+`EvictRules` 的用例逐条对应设计评审里的失败场景：
+
+| 用例 | 断言 |
+|---|---|
+| `NoSourcePath_IsNeverEvicted` | 程序化贴图 / 纯色图永不驱逐 |
+| `LooseFile_EvictsWithoutAnyWrite` | 有 loose 文件 → 零写盘 |
+| `AlreadyPersisted_EvictsWithoutWritingAgain` | `durable` 记忆 → 二次驱逐不重写 |
+| `PixelsInRam_ArePersistedOnceThenDropped` | 只有内存像素 → 先落盘一次 |
+| `NothingToReopenFrom_IsKeptWhenThereIsRoom` | 无处可取 → 留在内存 |
+| `NothingToReopenFrom_IsDroppedOnlyUnderPressure` | 超预算才允许 `ForcedEvict` |
+| `RepeatedEvictions_WriteAtMostOncePerTexture` | 同一贴图驱逐 25 次，写盘恰好 1 次 |
+| `UnknownBudget_NeverReportsPressure` | `/proc/meminfo` 读失败不得被当成有余量 |
+| `KeepBudget_IsAQuarterOfRamWithinBounds` | 2 GiB→512 MiB，8 GiB→2 GiB，512 MiB→256 MiB |
+
+```bash
+dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
+# Passed! - Failed: 0, Passed: 46, Skipped: 0, Total: 46
+```
+
 ---
 
 ## 9. 目录结构 / Структура
