@@ -31,10 +31,12 @@ namespace AgentTouchFix
         private static long _capBytes = 2560L * 1024L * 1024L;
 
         private static int _ok, _skipUnprovable, _skipPinned, _skipInflight, _skipNoVal, _hard;
+        private static int _skipBuild, _skipDirty, _frameResets, _rssUnknown;
         private static int _cooldown, _proofHits, _proofMisses;
         private static long _lastReportMs;
 
         // key = sourcePath|premultiplied|format|wxh  ->  epoch seconds when the proof expires
+        private static readonly object _sync = new object();
         private static readonly Dictionary<string, long> _proofs = new Dictionary<string, long>(StringComparer.Ordinal);
         // key as above -> epoch seconds until which we stop trying to prove it (protects against I/O thrash)
         private static readonly Dictionary<string, long> _cool = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -93,6 +95,17 @@ namespace AgentTouchFix
                 object cpu = Prop(__instance, "CpuData");
                 if (src == null || cpu == null) { Interlocked.Increment(ref _skipNoVal); return false; }
 
+                if (Prop(__instance, "PendingBuild") != null)
+                {
+                    Interlocked.Increment(ref _skipBuild);            // a build in flight would land on a disposed image
+                    return false;
+                }
+                object dirty = Prop(cpu, "Dirty");
+                if (dirty is bool && (bool)dirty)
+                {
+                    Interlocked.Increment(ref _skipDirty);            // CPU edits are not in pack/cache: never evict
+                    return false;
+                }
                 if ((bool)Prop(cpu, "HasData")) return true;          // re-upload is cheap and certain
 
                 long now = Now();
@@ -102,7 +115,11 @@ namespace AgentTouchFix
                 object lastObj = Prop(gpu, "LastUseFrame");
                 long last = lastObj is long ? (long)lastObj : -1L;
                 long frame = FrameSerial();
-                if (frame >= 0 && last >= 0 && frame - last < _graceFrames)
+                if (frame >= 0 && last > frame)
+                {
+                    Interlocked.Increment(ref _frameResets);           // frame serial restarted; treat as stale
+                }
+                else if (frame >= 0 && last >= 0 && frame - last < _graceFrames)
                 {
                     Interlocked.Increment(ref _skipInflight);
                     Report(now);
@@ -110,7 +127,7 @@ namespace AgentTouchFix
                 }
 
                 long rss = Rss();
-                bool overCap = rss > cap;
+                bool overCap = rss > 0 && rss > cap;   // unknown rss (0) must not look like headroom
 
                 // G2 pinned
                 if (!overCap && _pin)
@@ -127,23 +144,30 @@ namespace AgentTouchFix
 
                 // G3 proof
                 bool premul = (bool)Prop(cpu, "AlphaIsPremultiplied");
+                object linObj = Prop(cpu, "Linear");
+                bool linear = linObj is bool && (bool)linObj;
                 string fmt = Convert.ToString(Prop(cpu, "Format"));
-                string key = src + "|" + premul + "|" + fmt;
+                string key = src + "|" + premul + "|" + linear + "|" + fmt;
 
                 long until;
-                if (_proofs.TryGetValue(key, out until))
+                bool proofHit = false, cooled = false;
+                lock (_sync)
                 {
-                    if (until > now)
+                    if (_proofs.TryGetValue(key, out until))
                     {
-                        Interlocked.Increment(ref _proofHits);
-                        Interlocked.Increment(ref _ok);
-                        Report(now);
-                        return true;
+                        if (until > now) proofHit = true;
+                        else _proofs.Remove(key);
                     }
-                    _proofs.Remove(key);
+                    if (!proofHit && _cool.TryGetValue(key, out until) && until > now) cooled = true;
                 }
-
-                if (_cool.TryGetValue(key, out until) && until > now)
+                if (proofHit)
+                {
+                    Interlocked.Increment(ref _proofHits);
+                    Interlocked.Increment(ref _ok);
+                    Report(now);
+                    return true;
+                }
+                if (cooled)
                 {
                     Interlocked.Increment(ref _cooldown);
                     if (overCap) { Interlocked.Increment(ref _hard); return true; }
@@ -153,8 +177,7 @@ namespace AgentTouchFix
                 string reason;
                 if (CanRehydrate(src, premul, fmt, out reason))
                 {
-                    _proofs[key] = now + _proofTtl;
-                    _cool.Remove(key);
+                    lock (_sync) { _proofs[key] = now + _proofTtl; _cool.Remove(key); }
                     Interlocked.Increment(ref _proofMisses);
                     Interlocked.Increment(ref _ok);
                     Report(now);
@@ -169,7 +192,7 @@ namespace AgentTouchFix
                     return true;
                 }
 
-                _cool[key] = now + 60;
+                lock (_sync) { _cool[key] = now + 60; }
                 Interlocked.Increment(ref _skipUnprovable);
                 if (_skipUnprovable <= 40)
                     Refl.Info(Log + "skip unprovable path=" + src + " reason=" + reason
@@ -264,7 +287,7 @@ namespace AgentTouchFix
                 string[] p = System.IO.File.ReadAllText("/proc/self/statm").Split(' ');
                 _rss = long.Parse(p[1]) * 4096L;
             }
-            catch { _rss = 0; }
+            catch { _rss = 0; Interlocked.Increment(ref _rssUnknown); }
             return _rss;
         }
 
@@ -306,7 +329,8 @@ namespace AgentTouchFix
             _lastReportMs = ms;
             Refl.Info(Log + "evict allow=" + _ok + " skip{unprovable=" + _skipUnprovable
                       + " pinned=" + _skipPinned + " inflight=" + _skipInflight + " noval=" + _skipNoVal
-                      + "} hard=" + _hard + " cooldown=" + _cooldown
+                      + " build=" + _skipBuild + " dirty=" + _skipDirty + "} hard=" + _hard
+                      + " frameReset=" + _frameResets + " rssUnknown=" + _rssUnknown + " cooldown=" + _cooldown
                       + " proof{hit=" + _proofHits + " real=" + _proofMisses + " cached=" + _proofs.Count + "}"
                       + " rss=" + (Rss() >> 20) + "MiB cap=" + (_capBytes >> 20) + "MiB");
         }
