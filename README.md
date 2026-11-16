@@ -197,7 +197,7 @@ evict: reversible=1234 persisted=37 kept=2 rss=1180MiB
 需要 .NET 10 SDK。
 
 ```bash
-dotnet test tests/TexSt/TexSt.csproj -c Release     # 20 条单测（纯逻辑，无需游戏）
+dotnet test tests/TexSt/TexSt.csproj -c Release     # 46 条单测（纯逻辑，无需游戏）
 dotnet build mod/AgentTouchFix.csproj -c Release    # 产出 AgentTouchFix.dll
 ```
 
