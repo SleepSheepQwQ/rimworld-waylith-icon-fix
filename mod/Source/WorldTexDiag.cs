@@ -32,6 +32,45 @@ namespace AgentTouchFix
             get { return FlagOn("agenttouchfix.texkeep"); }
         }
 
+        // ---- memory ceiling -------------------------------------------------------------
+        // Never-evict fixes the missing weapons, but unbounded growth gets the app killed by
+        // MIUI's memory service (observed at ~3.8 GB PSS). So suppression is only active while the
+        // process stays under a ceiling; above it eviction resumes for a while.
+        private static long _capBytes = 2560L * 1024L * 1024L;
+        private static long _lastRssBytes;
+        private static long _lastRssMs;
+
+        private static long Rss()
+        {
+            long now = Environment.TickCount;
+            if (now - _lastRssMs < 2000 && _lastRssBytes > 0) return _lastRssBytes;
+            _lastRssMs = now;
+            try
+            {
+                // /proc/self/statm: size resident shared text lib data dt (pages)
+                string s = System.IO.File.ReadAllText("/proc/self/statm");
+                string[] parts = s.Split(' ');
+                long pages = long.Parse(parts[1]);
+                _lastRssBytes = pages * 4096L;
+            }
+            catch { _lastRssBytes = 0; }
+            return _lastRssBytes;
+        }
+
+        internal static void ReadCap()
+        {
+            try
+            {
+                string p = "/data/data/com.ports1de.waylith/files/game/agenttouchfix.texcap";
+                if (!System.IO.File.Exists(p)) return;
+                long mb;
+                if (long.TryParse((System.IO.File.ReadAllText(p) ?? "").Trim(), out mb) && mb > 256)
+                    _capBytes = mb * 1024L * 1024L;
+            }
+            catch { }
+            Refl.Info("texkeep: memory ceiling " + (_capBytes / (1024 * 1024)) + " MiB");
+        }
+
         internal static bool Diag
         {
             get { return FlagOn("agenttouchfix.weapdiag"); }
@@ -54,12 +93,25 @@ namespace AgentTouchFix
         {
             try
             {
+                long rss = Rss();
+                if (rss > _capBytes)
+                {
+                    long now0 = Environment.TickCount;
+                    if (now0 - _lastReportMs > 10000)
+                    {
+                        _lastReportMs = now0;
+                        Refl.Info("texkeep: over ceiling (" + (rss / (1024 * 1024)) + " MiB > "
+                                  + (_capBytes / (1024 * 1024)) + " MiB), eviction allowed again");
+                    }
+                    return true;    // let the original run
+                }
+
                 int n = Interlocked.Increment(ref _evictions);
                 long now = Environment.TickCount;
-                if (now - _lastReportMs > 10000)
+                if (now - _lastReportMs > 30000)
                 {
                     _lastReportMs = now;
-                    Refl.Info("texkeep: suppressed " + n + " evictions so far");
+                    Refl.Info("texkeep: suppressed " + n + " evictions, rss=" + (rss / (1024 * 1024)) + " MiB");
                 }
             }
             catch { }
