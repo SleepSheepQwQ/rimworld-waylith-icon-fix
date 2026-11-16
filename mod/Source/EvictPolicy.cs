@@ -35,7 +35,8 @@ namespace AgentTouchFix
         private static MethodInfo _writeCache;
         private static bool _resolved;
 
-        private static int _evictFile, _evictDurable, _persisted, _kept;
+        private static int _evictFile, _evictDurable, _persisted, _kept, _forced;
+        private static long _keptBytes, _keptBudget;
         private static long _lastReportMs;
 
         private sealed class Memo { public long Until; public bool Value; }
@@ -89,7 +90,20 @@ namespace AgentTouchFix
                 if (Durable(key)) { Count(ref _evictDurable); return true; }
 
                 object cpu = Prop(__instance, "CpuData");
-                if (cpu == null || !Truthy(Prop(cpu, "HasData"))) { Keep("no-pixels"); return false; }
+                if (cpu == null || !Truthy(Prop(cpu, "HasData")))
+                {
+                    if (Pressured())
+                    {
+                        // Keeping without pixels is free of I/O but not of RAM. Under pressure we accept
+                        // the engine's own gamble rather than risk being killed: this is the only path
+                        // that can still lose a texture, and it is counted and logged.
+                        Interlocked.Increment(ref _forced);
+                        Report();
+                        return true;
+                    }
+                    Keep(Size(__instance), "no-pixels");
+                    return false;
+                }
 
                 _busy = true;
                 try
@@ -98,7 +112,7 @@ namespace AgentTouchFix
                     MarkDurable(key);
                     Count(ref _persisted);
                 }
-                catch (Exception e) { Keep("write-failed:" + (e.InnerException?.GetType().Name ?? e.GetType().Name)); }
+                catch (Exception e) { Keep(Size(__instance), "write-failed:" + (e.InnerException?.GetType().Name ?? e.GetType().Name)); }
                 finally { _busy = false; }
 
                 return false;   // WriteTextureCache already queued this eviction
@@ -149,8 +163,44 @@ namespace AgentTouchFix
             Report();
         }
 
-        private static void Keep(string why)
+        private static long Size(object tex)
         {
+            try
+            {
+                int w = Convert.ToInt32(Prop(tex, "width") ?? 0);
+                int h = Convert.ToInt32(Prop(tex, "height") ?? 0);
+                return (long)w * h * 4;
+            }
+            catch { return 0; }
+        }
+
+        /// Budget for textures we keep resident instead of evicting: 25% of RAM, so the zero-I/O path
+        /// is bounded and a texture-heavy save cannot grow us into the low-memory killer.
+        private static bool Pressured()
+        {
+            if (_keptBudget == 0)
+            {
+                long total = 0;
+                try
+                {
+                    foreach (string line in System.IO.File.ReadAllLines("/proc/meminfo"))
+                        if (line.StartsWith("MemTotal:"))
+                        {
+                            total = long.Parse(line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)[1]) * 1024L;
+                            break;
+                        }
+                }
+                catch { }
+                if (total <= 0) total = 4L << 30;
+                _keptBudget = (long)(total * 0.25);
+                Refl.Info(Log + "keep budget " + (_keptBudget >> 20) + "MiB");
+            }
+            return Interlocked.Read(ref _keptBytes) > _keptBudget;
+        }
+
+        private static void Keep(long bytes, string why)
+        {
+            Interlocked.Add(ref _keptBytes, bytes);
             int n = Interlocked.Increment(ref _kept);
             if (n <= 20) Refl.Info(Log + "kept (" + why + ")");
             Report();
@@ -162,7 +212,8 @@ namespace AgentTouchFix
             if (ms - _lastReportMs < 60000) return;
             _lastReportMs = ms;
             Refl.Info(Log + "file=" + _evictFile + " durable=" + _evictDurable + " persisted=" + _persisted
-                      + " kept=" + _kept + " rss=" + (Rss() >> 20) + "MiB");
+                      + " kept=" + _kept + "(" + (Interlocked.Read(ref _keptBytes) >> 20) + "MiB)"
+                      + " forced=" + _forced + " rss=" + (Rss() >> 20) + "MiB");
         }
 
         private static long _rss, _rssMs;
