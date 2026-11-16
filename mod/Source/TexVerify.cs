@@ -26,9 +26,11 @@ namespace AgentTouchFix
     {
         private const string Log = "textrace: ";
 
-        private static bool _enabled, _pin;
-        private static int _graceFrames = 3, _proofTtl = 30;
-        private static long _capBytes = 2560L * 1024L * 1024L;
+        // No configuration. Three constants and one automatic budget derived from the device.
+        private const int GraceFrames = 3;      // frames an image must be untouched before eviction
+        private const int ProofTtl = 30;        // seconds a "can rehydrate" verdict is trusted
+        private const int Cooldown = 60;        // seconds before retrying an unprovable texture
+        private static long _capBytes = 1536L * 1024L * 1024L;   // replaced by AutoCap() at startup
 
         private static int _ok, _skipUnprovable, _skipPinned, _skipInflight, _skipNoVal, _hard;
         private static int _skipBuild, _skipDirty, _frameResets, _rssUnknown;
@@ -45,48 +47,10 @@ namespace AgentTouchFix
         private static PropertyInfo _frameSerial;
         private static bool _resolved;
 
-        // Mods listed one per line in files/game/agenttouchfix.texdeny are left completely alone:
-        // any texture whose path contains one of these substrings is evicted exactly as the port decides.
-        private static string[] _deny = new string[0];
-        private static bool _strictCompat;
-
-        private static void ReadDeny()
-        {
-            try
-            {
-                string p = "/data/data/com.ports1de.waylith/files/game/agenttouchfix.texdeny";
-                if (!System.IO.File.Exists(p)) return;
-                var lines = new List<string>();
-                foreach (string raw in System.IO.File.ReadAllLines(p))
-                {
-                    string v = (raw ?? "").Trim();
-                    if (v.Length > 0 && !v.StartsWith("#")) lines.Add(v);
-                }
-                _deny = lines.ToArray();
-                if (_deny.Length > 0) Refl.Info(Log + "deny list: " + string.Join(", ", _deny));
-            }
-            catch { }
-        }
-
-        private static bool Denied(string src)
-        {
-            if (src == null || _deny.Length == 0) return false;
-            foreach (string d in _deny)
-                if (src.IndexOf(d, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            return false;
-        }
-
         internal static void Init()
         {
-            _enabled = Flag("agenttouchfix.texverify", "on");
-            _pin = Flag("agenttouchfix.texpin", "on");
-            _graceFrames = IntFlag("agenttouchfix.texgrace", 3, 0, 60);
-            _proofTtl = IntFlag("agenttouchfix.texproof", 30, 5, 600);
-            long mb = IntFlag("agenttouchfix.texcap", 2560, 256, 8192);
-            _capBytes = mb * 1024L * 1024L;
-            if (!_enabled) { Refl.Info(Log + "disabled by flag"); return; }
-
-            ReadDeny();
+            if (Killed()) { Refl.Info(Log + "kill switch present, not installing"); return; }
+            _capBytes = AutoCap();
             TryResolve();
             MethodInfo evict = typeof(TexVerify).GetMethod("Evict_Prefix",
                 BindingFlags.Static | BindingFlags.NonPublic);
@@ -111,17 +75,13 @@ namespace AgentTouchFix
             }
             catch { }
 
-            _strictCompat = Flag("agenttouchfix.texcompat", "passive") == false;   // "strict" => false
-            if (compat != "solo" && _strictCompat)
-            {
-                Refl.Warn(Log + "Texture2D.Evict already patched by " + compat + "; strict compat -> not installing");
-                return;
-            }
+            // Conflict handling is automatic: priority Low means their verdict runs first, and a
+            // failure in our gate always falls through to the original behaviour.
 
             new HarmonyLib.Harmony("sleepsheep.waylith.agenttouchfix.texverify")
                 .Patch(m, new HarmonyMethod(typeof(TexVerify).GetMethod("Evict_Prefix",
                     BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)));
-            Refl.Info(Log + "verified eviction installed (grace=" + _graceFrames + "f proof=" + _proofTtl
+            Refl.Info(Log + "verified eviction installed (grace=" + GraceFrames + "f proof=" + ProofTtl
                       + "s cap=" + (mb) + "MiB pin=" + _pin + " compat=" + compat + ")");
         }
 
@@ -151,7 +111,6 @@ namespace AgentTouchFix
                 if (gpu == null) { Interlocked.Increment(ref _skipNoVal); return false; }
 
                 string src = Prop(__instance, "SourcePath") as string;
-                if (Denied(src)) return true;                         // owned by an opted-out mod
                 object cpu = Prop(__instance, "CpuData");
                 if (src == null || cpu == null) { Interlocked.Increment(ref _skipNoVal); return false; }
 
@@ -179,7 +138,7 @@ namespace AgentTouchFix
                 {
                     Interlocked.Increment(ref _frameResets);           // frame serial restarted; treat as stale
                 }
-                else if (frame >= 0 && last >= 0 && frame - last < _graceFrames)
+                else if (frame >= 0 && last >= 0 && frame - last < GraceFrames)
                 {
                     Interlocked.Increment(ref _skipInflight);
                     Report(now);
@@ -190,7 +149,7 @@ namespace AgentTouchFix
                 bool overCap = rss > 0 && rss > cap;   // unknown rss (0) must not look like headroom
 
                 // G2 pinned
-                if (!overCap && _pin)
+                if (!overCap)
                 {
                     string name = Prop(__instance, "Name") as string ?? "";
                     int w = IntOf(__instance, "width"), h = IntOf(__instance, "height");
@@ -237,7 +196,7 @@ namespace AgentTouchFix
                 string reason;
                 if (CanRehydrate(src, premul, fmt, out reason))
                 {
-                    lock (_sync) { _proofs[key] = now + _proofTtl; _cool.Remove(key); }
+                    lock (_sync) { _proofs[key] = now + ProofTtl; _cool.Remove(key); }
                     Interlocked.Increment(ref _proofMisses);
                     Interlocked.Increment(ref _ok);
                     Report(now);
@@ -252,7 +211,7 @@ namespace AgentTouchFix
                     return true;
                 }
 
-                lock (_sync) { _cool[key] = now + 60; }
+                lock (_sync) { _cool[key] = now + Cooldown; }
                 Interlocked.Increment(ref _skipUnprovable);
                 if (_skipUnprovable <= 40)
                     Refl.Info(Log + "skip unprovable path=" + src + " reason=" + reason
@@ -309,31 +268,34 @@ namespace AgentTouchFix
         }
 
         // ------------------------------------------------------------------ plumbing
-        private static bool Flag(string file, string fallback)
+        // Emergency only: if this file exists the mod does nothing at all. No other switches.
+        private static bool Killed()
         {
-            try
-            {
-                string p = "/data/data/com.ports1de.waylith/files/game/" + file;
-                if (!System.IO.File.Exists(p)) return fallback == "on";
-                string v = (System.IO.File.ReadAllText(p) ?? "").Trim().ToLowerInvariant();
-                if (v.StartsWith("off") || v == "0" || v == "false") return false;
-                return true;
-            }
-            catch { return fallback == "on"; }
+            try { return System.IO.File.Exists("/data/data/com.ports1de.waylith/files/game/agenttouchfix.off"); }
+            catch { return false; }
         }
 
-        private static int IntFlag(string file, int fallback, int min, int max)
+        /// Budget = 45% of physical RAM, clamped to [512 MiB, 3 GiB]. Derived, never configured:
+        /// low-RAM phones keep more room for the OS, big phones stop hoarding textures.
+        private static long AutoCap()
         {
+            long total = 0;
             try
             {
-                string p = "/data/data/com.ports1de.waylith/files/game/" + file;
-                if (!System.IO.File.Exists(p)) return fallback;
-                int v;
-                if (int.TryParse((System.IO.File.ReadAllText(p) ?? "").Trim(), out v))
-                    return v < min ? min : (v > max ? max : v);
+                foreach (string line in System.IO.File.ReadAllLines("/proc/meminfo"))
+                {
+                    if (!line.StartsWith("MemTotal:")) continue;
+                    string[] parts = line.Split(new[] { ' ', '	' }, StringSplitOptions.RemoveEmptyEntries);
+                    total = long.Parse(parts[1]) * 1024L;
+                    break;
+                }
             }
             catch { }
-            return fallback;
+            if (total <= 0) total = 3L * 1024L * 1024L * 1024L;
+            long cap = (long)(total * 0.45);
+            if (cap < 512L << 20) cap = 512L << 20;
+            if (cap > 3L << 30) cap = 3L << 30;
+            return cap;
         }
 
         private static long _rss, _rssMs;
