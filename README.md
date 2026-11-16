@@ -133,9 +133,11 @@ cat AgentTouchFix/About.xml \
 
 ```bash
 L=files/game/agenttouchfix.log
-grep -a "BUILD v41-slim"              $L   # 版本已加载
+grep -a "BUILD v2.6.0"                $L   # 版本已加载
 grep -a "drawfix: prefix on"          $L   # 补丁安装成功
 grep -a -c "dropped icon material"    $L   # > 0 表示修复真的作用到了图标材质
+grep -a "textrace: verified eviction installed" $L   # 验证式驱逐已安装
+grep -a "textrace: evict allow="      $L   # 每 30 秒一行汇总（见下）
 ```
 
 正常输出形如：
@@ -152,15 +154,37 @@ grep -a -c "dropped icon material"    $L   # > 0 表示修复真的作用到了�
 | 只有前两行，第三行为 0 | 该设备/该存档本来就没走材质路径，不属于这个 bug |
 | 一行都没有 | 模组没加载：检查 `About.xml` 位置与 `ModsConfig.xml` 是否启用 |
 
+纹理驱逐汇总行示例（每 30 秒一行，正常游玩时有这些数字就说明在起作用）：
+
+```
+textrace: evict allow=1234 skip{unprovable=37 pinned=890 inflight=12 noval=0 build=0 dirty=0} hard=0 frameReset=0 rssUnknown=0 cooldown=3 proof{hit=1204 real=30 cached=29} rss=1180MiB cap=2900MiB
+```
+
+`unprovable > 0` 是关键：这些贴图**本来会被驱逐后永久黑掉**，现在被拦住了。
+
 ---
 
-## 6. 开关与回滚 / Переключатели и откат
+## 6. 没有开关 / Никаких настроек
+
+**这个模组不需要任何配置**，装上就按最合理的方式工作：
+
+| 你可能会想配的东西 | 实际行为（自动） |
+|---|---|
+| 显存/内存预算 | 取设备物理内存的 45%，夹在 512 MiB – 3 GiB 之间（`/proc/meminfo` 的 `MemTotal`） |
+| 哪些贴图该保住 | UI 贴图、≤256 KiB 的小图、最近 300 帧用过的图；其余在"能证明可重载"时照常回收 |
+| 与其它模组冲突 | 补丁用 `Priority.Low` 排在别人之后；我们的判定失败一律回退成原版行为 |
+| 开关文件 | 没有。只有唯一的应急开关（下表） |
+
+唯一的应急手段：
 
 | 目标 | 做法 |
 |---|---|
-| 完全停用 | 删除 `files/game/Mods/agenttouchfix/Assemblies/AgentTouchFix.dll` |
-| 只保留原材质路径（关掉图标修复） | 新建 `files/game/agenttouchfix.iconpath`，内容写 `material` |
+| 一键停用全部补丁 | 新建 `files/game/agenttouchfix.off`（内容随意），重启游戏 |
+| 彻底移除 | 删除 `files/game/Mods/agenttouchfix/` 整个目录（或移除 `ModsConfig.xml` 里的条目） |
 | 恢复原版模组列表 | 用 `files/save/Config/ModsConfig.xml.bak-*` 覆盖回去 |
+
+设计理由（为什么不做配置项）：配置项只有在"用户知道该选哪个值"时才有价值；这里的正确答案取决于设备内存与贴图格式，
+用户无从判断。给错值 = 又回到"贴图全黑"或"内存被吃光"，比不给开关更糟。
 
 ---
 
