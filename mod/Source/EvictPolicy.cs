@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using HarmonyLib;
@@ -7,120 +8,100 @@ using Verse;
 namespace AgentTouchFix
 {
     /// <summary>
-    /// Eviction policy: persist, then drop.
+    /// Eviction policy: only drop a texture we can re-open cheaply.
     ///
-    /// The port decides eviction from metadata (Texture2D.cs:414 -> HasValidTextureCache) but rehydrates
-    /// from data (TryOpenPackTexture / TextureCacheStore), and additionally needs the format to match
-    /// (TryUploadFromCache). Where the two disagree an evicted texture can never come back, and every
-    /// draw using it silently renders nothing - the missing held weapons.
+    /// Why: the port evicts when HasValidTextureCache() (a metadata lookup, GpuTextureService.cs:4308) says
+    /// the pack "has" the entry, but rehydration needs that entry to actually decode
+    /// (TryOpenPackTexture -> AssetPack.TryRent, ContentPack.cs:269). When metadata says yes and the read
+    /// says no, the texture is gone for good and every draw using it silently renders nothing - the
+    /// missing held weapons.
     ///
-    /// Rather than guarding each eviction with heuristics (frame gates, pinning, proofs, memory
-    /// ceilings), this restores the invariant the engine already has a primitive for:
+    /// Cheap policy, no I/O in the steady state and no repeated read/write of pixels:
     ///
-    ///     no texture is ever dropped before its pixels are durable
+    ///     a. loose file on disk            -> evict   (re-decode later, no bookkeeping)
+    ///     b. we already persisted it once  -> evict   (the cache serves it)
+    ///     c. pixels still in RAM           -> write the cache once, then evict
+    ///     d. none of the above             -> keep resident (never lose what we cannot rebuild)
     ///
-    /// GpuTextureService.WriteTextureCache(path, texture) writes the cache and releases the GPU copy -
-    /// exactly what an eviction means. So the fix is one rule:
-    ///
-    ///     if the cache cannot serve this texture -> write it first, drop afterwards
-    ///
-    /// Everything else (who calls Evict, how often, how big the texture is, how much RAM is free)
-    /// becomes irrelevant, and the port's own reclaim keeps working.
+    /// Steady state cost: one memoised File.Exists per path per minute. Pixels are written at most once
+    /// per texture, and never again on re-eviction.
     /// </summary>
     internal static class EvictPolicy
     {
         private const string Log = "evict: ";
+        private const int MemoTtlMs = 60000;
+        private const int MemoMax = 8192;
 
-        private static int _fast, _persisted, _kept;
+        private static MethodInfo _writeCache;
+        private static bool _resolved;
+
+        private static int _evictFile, _evictDurable, _persisted, _kept;
         private static long _lastReportMs;
 
-        private static MethodInfo _hasValid, _writeCache;
-        private static PropertyInfo _frameSerial;
-        private static bool _resolved;
+        private sealed class Memo { public long Until; public bool Value; }
+        private static readonly object _sync = new object();
+        private static readonly Dictionary<string, Memo> _exists = new Dictionary<string, Memo>(StringComparer.Ordinal);
+        private static readonly HashSet<string> _durable = new HashSet<string>(StringComparer.Ordinal);
 
         [ThreadStatic] private static bool _busy;
 
         internal static void Init()
         {
             if (Killed()) { Refl.Info(Log + "kill switch present, not installing"); return; }
-
             if (!Resolve()) return;
 
-            MethodInfo evict = typeof(EvictPolicy).GetMethod("Evict_Prefix",
-                BindingFlags.Static | BindingFlags.NonPublic);
             Type t = Refl.T("Waylith.Rendering.Texture2D");
             MethodInfo target = t == null ? null : t.GetMethod("Evict",
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (target == null) { Refl.Warn(Log + "Texture2D.Evict() not found"); return; }
 
-            string compat = Compat(target);
-            new HarmonyLib.Harmony("sleepsheep.waylith.agenttouchfix.evict").Patch(target, new HarmonyMethod(evict));
-            Refl.Info(Log + "persist-then-drop installed (compat=" + compat + ")");
+            new HarmonyLib.Harmony("sleepsheep.waylith.agenttouchfix.evict").Patch(target,
+                new HarmonyMethod(typeof(EvictPolicy).GetMethod("Evict_Prefix",
+                    BindingFlags.Static | BindingFlags.NonPublic)));
+            Refl.Info(Log + "cheap-reopen policy installed (compat=" + Compat(target) + ")");
         }
 
         private static bool Resolve()
         {
-            if (_resolved) return _hasValid != null && _writeCache != null;
+            if (_resolved) return _writeCache != null;
             _resolved = true;
             Type svc = Refl.T("Waylith.Rendering.GpuTextureService");
-            if (svc == null) { Refl.Warn(Log + "GpuTextureService not found"); return false; }
-
-            _hasValid = svc.GetMethod("HasValidTextureCache",
-                BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static, null,
-                new[] { typeof(string), typeof(bool), typeof(int), typeof(int) }, null);
-            _writeCache = svc.GetMethod("WriteTextureCache",
+            _writeCache = svc?.GetMethod("WriteTextureCache",
                 BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static, null,
                 new[] { typeof(string), Refl.T("Waylith.Rendering.Texture2D") }, null);
-            if (_hasValid == null || _writeCache == null)
-            {
-                Refl.Warn(Log + "engine primitives missing (hasValid=" + (_hasValid != null)
-                          + " writeCache=" + (_writeCache != null) + ")");
-                return false;
-            }
+            if (_writeCache == null) { Refl.Warn(Log + "WriteTextureCache not found"); return false; }
             return true;
         }
 
         // ------------------------------------------------------------------ the whole policy
-        [HarmonyPriority(Priority.Low)]      // other mods decide first; we never override a refusal
+        [HarmonyPriority(Priority.Low)]
         internal static bool Evict_Prefix(object __instance)
         {
             if (_busy || __instance == null) return true;
             try
             {
-                if (Prop(__instance, "GpuResource") == null) return false;      // nothing to free
-
                 string src = Prop(__instance, "SourcePath") as string;
+                if (src == null) { Keep("no-source"); return false; }
+
+                if (FileExists(src)) { Count(ref _evictFile); return true; }
+
+                string key = src + "|" + Prop(__instance, "width") + "x" + Prop(__instance, "height");
+                if (Durable(key)) { Count(ref _evictDurable); return true; }
+
                 object cpu = Prop(__instance, "CpuData");
-                if (src == null || cpu == null) { Keep("no-source"); return false; }
+                if (cpu == null || !Truthy(Prop(cpu, "HasData"))) { Keep("no-pixels"); return false; }
 
-                bool premultiplied = Truthy(Prop(cpu, "AlphaIsPremultiplied"));
-                int w = Convert.ToInt32(Prop(__instance, "width") ?? 0);
-                int h = Convert.ToInt32(Prop(__instance, "height") ?? 0);
-
-                if (CacheServes(src, premultiplied, w, h))
-                {
-                    Interlocked.Increment(ref _fast);                            // reversible as-is
-                    Report();
-                    return true;
-                }
-
-                if (!Truthy(Prop(cpu, "HasData"))) { Keep("no-pixels"); return false; }
-
-                // Pixels only exist in RAM: make them durable first, then let the engine drop the image.
                 _busy = true;
                 try
                 {
                     _writeCache.Invoke(null, new object[] { src, __instance });
-                    Interlocked.Increment(ref _persisted);
+                    MarkDurable(key);
+                    Count(ref _persisted);
                 }
-                catch (Exception e)
-                {
-                    Keep("write-failed:" + (e.InnerException?.GetType().Name ?? e.GetType().Name));
-                }
+                catch (Exception e) { Keep("write-failed:" + (e.InnerException?.GetType().Name ?? e.GetType().Name)); }
                 finally { _busy = false; }
 
-                Report();
-                return false;   // WriteTextureCache already queued the eviction; do not evict twice
+                return false;   // WriteTextureCache already queued this eviction
             }
             catch (Exception e)
             {
@@ -129,17 +110,49 @@ namespace AgentTouchFix
             }
         }
 
-        private static bool CacheServes(string path, bool premultiplied, int w, int h)
+        // ------------------------------------------------------------------ memoised facts
+        private static bool FileExists(string path)
         {
-            try { return Truthy(_hasValid.Invoke(null, new object[] { path, premultiplied, w, h })); }
-            catch { return true; }   // unknown -> let the engine do what it always did
+            long now = Environment.TickCount;
+            lock (_sync)
+            {
+                Memo m;
+                if (_exists.TryGetValue(path, out m) && m.Until > now) return m.Value;
+            }
+
+            bool value;
+            try { value = System.IO.File.Exists(path); }
+            catch { value = false; }
+
+            lock (_sync)
+            {
+                if (_exists.Count > MemoMax) _exists.Clear();
+                _exists[path] = new Memo { Until = now + MemoTtlMs, Value = value };
+            }
+            return value;
         }
 
-        // ------------------------------------------------------------------ plumbing
+        private static bool Durable(string key) { lock (_sync) return _durable.Contains(key); }
+
+        private static void MarkDurable(string key)
+        {
+            lock (_sync)
+            {
+                if (_durable.Count > MemoMax) _durable.Clear();
+                _durable.Add(key);
+            }
+        }
+
+        private static void Count(ref int counter)
+        {
+            Interlocked.Increment(ref counter);
+            Report();
+        }
+
         private static void Keep(string why)
         {
             int n = Interlocked.Increment(ref _kept);
-            if (n <= 20) Refl.Info(Log + "kept resident (" + why + ")");
+            if (n <= 20) Refl.Info(Log + "kept (" + why + ")");
             Report();
         }
 
@@ -148,8 +161,8 @@ namespace AgentTouchFix
             long ms = Environment.TickCount;
             if (ms - _lastReportMs < 60000) return;
             _lastReportMs = ms;
-            Refl.Info(Log + "reversible=" + _fast + " persisted=" + _persisted + " kept=" + _kept
-                      + " rss=" + (Rss() >> 20) + "MiB");
+            Refl.Info(Log + "file=" + _evictFile + " durable=" + _evictDurable + " persisted=" + _persisted
+                      + " kept=" + _kept + " rss=" + (Rss() >> 20) + "MiB");
         }
 
         private static long _rss, _rssMs;
@@ -173,7 +186,7 @@ namespace AgentTouchFix
             {
                 Patches info = HarmonyLib.Harmony.GetPatchInfo(target);
                 if (info?.Prefixes == null) return "solo";
-                var others = new System.Collections.Generic.List<string>();
+                var others = new List<string>();
                 foreach (Patch p in info.Prefixes)
                     if (p.owner != "sleepsheep.waylith.agenttouchfix.evict") others.Add(p.owner);
                 return others.Count == 0 ? "solo" : string.Join("+", others);
