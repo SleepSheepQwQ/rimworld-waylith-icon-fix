@@ -43,6 +43,7 @@ namespace AgentTouchFix
             _mode = string.IsNullOrEmpty(mode) ? IconPath.Plain : mode.Trim().ToLowerInvariant();
         }
 
+        [HarmonyPriority(Priority.Low)]   // other mods get the first word on ThingIcon
         internal static void Prefix(object[] __args)
         {
             try
@@ -51,6 +52,7 @@ namespace AgentTouchFix
                 object def = __args[1];
                 if (def == null) return;
                 if (_defType != def.GetType()) Resolve(def.GetType());
+                if (Denied(def)) return;                 // defName listed in agenttouchfix.icondeny
 
                 object icon = _fIcon.GetValue(def);
                 if (icon == null || IsBad(icon))
@@ -179,8 +181,57 @@ namespace AgentTouchFix
             if (Interlocked.Exchange(ref _warned, 1) == 0) Refl.Warn("drawfix: " + m);
         }
 
+        private static string[] _deny = new string[0];
+        private static bool _strict;
+
+        private static string ReadMode(string file)
+        {
+            try
+            {
+                string p = "/data/data/com.ports1de.waylith/files/game/" + file;
+                if (!System.IO.File.Exists(p)) return "";
+                return (System.IO.File.ReadAllText(p) ?? "").Trim().ToLowerInvariant();
+            }
+            catch { return ""; }
+        }
+
+        private static void ReadDeny()
+        {
+            try
+            {
+                string p = "/data/data/com.ports1de.waylith/files/game/agenttouchfix.icondeny";
+                if (!System.IO.File.Exists(p)) return;
+                var lines = new System.Collections.Generic.List<string>();
+                foreach (string raw in System.IO.File.ReadAllLines(p))
+                {
+                    string v = (raw ?? "").Trim();
+                    if (v.Length > 0 && !v.StartsWith("#")) lines.Add(v);
+                }
+                _deny = lines.ToArray();
+                if (_deny.Length > 0) Refl.Info("drawfix: icondeny " + string.Join(", ", _deny));
+            }
+            catch { }
+        }
+
+        private static bool Denied(object def)
+        {
+            if (_deny.Length == 0) return false;
+            try
+            {
+                object n = def.GetType().GetProperty("defName")?.GetValue(def, null);
+                string name = n as string;
+                if (string.IsNullOrEmpty(name)) return false;
+                foreach (string d in _deny)
+                    if (name.StartsWith(d, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch { }
+            return false;
+        }
+
         internal static void Install()
         {
+            ReadDeny();
+            _strict = ReadMode("agenttouchfix.iconcompat") == "strict";
             Type widgets = Refl.T("Verse.Widgets");
             if (widgets == null) { Refl.Warn("drawfix: Verse.Widgets not found"); return; }
 
@@ -197,7 +248,29 @@ namespace AgentTouchFix
             {
                 MethodInfo pre = typeof(IconFieldFix).GetMethod("Prefix",
                     BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+
+                string compat = "solo";
+                try
+                {
+                    Patches info = Harmony.GetPatchInfo(target);
+                    if (info != null && info.Prefixes != null)
+                    {
+                        var others = new System.Collections.Generic.List<string>();
+                        foreach (Patch pp in info.Prefixes)
+                            if (pp.owner != "sleepsheep.waylith.agenttouchfix.drawfix") others.Add(pp.owner);
+                        if (others.Count > 0) compat = string.Join("+", others);
+                    }
+                }
+                catch { }
+
+                if (compat != "solo" && _strict)
+                {
+                    Refl.Warn("drawfix: ThingIcon already patched by " + compat + "; strict compat -> not installing");
+                    return;
+                }
+
                 new Harmony("sleepsheep.waylith.agenttouchfix.drawfix").Patch(target, new HarmonyMethod(pre));
+                if (compat != "solo") Refl.Info("drawfix: sharing ThingIcon with " + compat + " (priority Low)");
                 Refl.Info("drawfix: prefix on Verse.Widgets.ThingIcon (uiIcon repaired, icon material dropped)");
             }
             catch (Exception e) { Refl.Warn("drawfix: patch failed: " + e.Message); }
