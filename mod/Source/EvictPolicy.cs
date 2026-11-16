@@ -82,7 +82,7 @@ namespace AgentTouchFix
             try
             {
                 string src = Prop(__instance, "SourcePath") as string;
-                if (src == null) { Keep("no-source"); return false; }
+                if (src == null) { Keep(0, "no-source"); return false; }
 
                 if (FileExists(src)) { Count(ref _evictFile); return true; }
 
