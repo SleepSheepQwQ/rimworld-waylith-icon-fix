@@ -11,9 +11,6 @@ namespace AgentTouchFix
     [StaticConstructorOnStartup]
     internal static class Bootstrap
     {
-        private const string SwitchPath =
-            "/data/data/com.ports1de.waylith/files/game/agenttouchfix.iconpath";
-
         static Bootstrap()
         {
             try
@@ -21,25 +18,12 @@ namespace AgentTouchFix
                 Refl.Info("AgentTouchFix " + typeof(Bootstrap).Assembly.GetName().Version
                           + " bootstrapping (harmony " + typeof(HarmonyLib.Harmony).Assembly.GetName().Version + ")");
 
-                string mode = "";
-                try
-                {
-                    if (File.Exists(SwitchPath)) mode = (File.ReadAllText(SwitchPath) ?? "").Trim();
-                }
-                catch (Exception e) { Refl.Warn("iconpath switch: " + e.Message); }
-
-                IconFieldFix.Init(mode);
+                IconFieldFix.Init("");
                 IconFieldFix.Install();
 
-                // Diagnostics / candidate fix for world textures (held weapons):
-                //   agenttouchfix.weapdiag = on  -> log one line per weapon def
-                //   agenttouchfix.texkeep  = on  -> suppress Texture2D.Evict() entirely
-                if (WorldTexDiag.Diag) WorldTexDiag.InstallWeaponProbe();
-                WorldTexDiag.ReadCap();
                 TexVerify.Init();
 
-                Refl.Info("BUILD v41-slim (2.4.0) - build-menu icon repair"
-                          + " (uiIcon fallback + CutoutComplexUI material dropped at draw time)");
+                Refl.Info("BUILD v2.6.0 - icon repair + verified eviction (no configuration)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
