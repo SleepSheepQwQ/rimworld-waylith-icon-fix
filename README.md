@@ -11,24 +11,6 @@ No APK modification, no repacking, no re-signing — everything is applied at ru
 
 ---
 
-## 0. 下载 / Скачать
-
-| 方式 | 适合谁 | 链接 |
-|---|---|---|
-| **Releases（推荐）** | 只想用，不想编译 | [v2.4.0 → `AgentTouchFix-2.4.0.zip`](https://github.com/SleepSheepQwQ/rimworld-waylith-icon-fix/releases/latest) |
-| **Actions 产物** | 想拿最新一次构建 | 仓库 `Actions` → `build` → 最新一次运行 → 底部 `Artifacts` → `AgentTouchFix`（需登录 GitHub） |
-| **源码构建** | 想改代码 | `dotnet build mod/AgentTouchFix.csproj -c Release`，见第 7 节 |
-
-**推荐路径 / Рекомендуемый путь:** 下载 `AgentTouchFix-2.4.0.zip` → 解压得到 `AgentTouchFix/{About,Assemblies}` →
-整个 `AgentTouchFix` 文件夹放进游戏的 `Mods/` → 在「Mod 配置」中启用 → 重启游戏。
-
-Скачайте `AgentTouchFix-2.4.0.zip`, распакуйте, положите папку `AgentTouchFix` в `Mods/`,
-включите мод в «Mod config» и перезапустите игру.
-
-**不需要的**：不需要 GitHub 账号（Releases 匿名可下）、不需要 root、不需要改 APK。
-
----
-
 ## 1. 症状 / Симптомы
 
 **中文**
@@ -62,8 +44,6 @@ No APK modification, no repacking, no re-signing — everything is applied at ru
 2. Тот же метод создаёт `uiIconMaterial` (`CutoutComplexUI_<имя>`). При наличии материала `Widgets.ThingIcon` идёт по «материальному» пути, а там есть два места, где плитка **молча отбрасывается**:
    - шейдер `CutoutComplex.frag.glsl`: `uv = vUv * _MainTex_ST.zw + _MainTex_ST.xy` (**offset в xy, scale в zw** — обратно юнитивскому порядку); при вырожденных параметрах сэмпл попадает в прозрачный угол → `discard` → не рисуется ничего
    - `ImGuiGuiBackend.DrawTextureWithMaterial()` при `passMaterial == null` или вырожденном `rect` просто выходит, без диагностики
-
-相关模组：**[AgentDevTools](https://github.com/SleepSheepQwQ/rimworld-waylith-devtools)** —— 开发者工具的精确点击（输入路径）。两者互不引用，可同时启用。
 
 完整分析（含 CI 量化证据）：[`docs/report-zh-ru.md`](docs/report-zh-ru.md)
 
@@ -133,11 +113,9 @@ cat AgentTouchFix/About.xml \
 
 ```bash
 L=files/game/agenttouchfix.log
-grep -a "BUILD v3.0.0"                $L   # 版本已加载
+grep -a "BUILD v41-slim"              $L   # 版本已加载
 grep -a "drawfix: prefix on"          $L   # 补丁安装成功
 grep -a -c "dropped icon material"    $L   # > 0 表示修复真的作用到了图标材质
-grep -a "evict: persist-then-drop installed" $L   # 驱逐策略已安装
-grep -a "evict: reversible="          $L   # 每 60 秒一行汇总（见下）
 ```
 
 正常输出形如：
@@ -154,41 +132,15 @@ grep -a "evict: reversible="          $L   # 每 60 秒一行汇总（见下）
 | 只有前两行，第三行为 0 | 该设备/该存档本来就没走材质路径，不属于这个 bug |
 | 一行都没有 | 模组没加载：检查 `About.xml` 位置与 `ModsConfig.xml` 是否启用 |
 
-纹理驱逐汇总行示例（每 60 秒一行）：
-
-```
-evict: reversible=1234 persisted=37 kept=2 rss=1180MiB
-```
-
-- `reversible` —— 缓存本来就能供给，按引擎原逻辑直接回收
-- `persisted` —— **像素只存在内存里的贴图：先落盘缓存，再回收**（这就是修复的核心；37 这类贴图原本会被回收后永久变黑）
-- `kept` —— 既没有像素也没有缓存，宁可留在内存里也不丢（数量应接近 0）
-
 ---
 
-## 6. 没有开关 / Никаких настроек
-
-**这个模组不需要任何配置**，装上就按最合理的方式工作：
-
-| 你可能会想配的东西 | 实际行为（自动） |
-|---|---|
-| 显存/内存预算 | 取设备物理内存的 45%，夹在 512 MiB – 3 GiB 之间（`/proc/meminfo` 的 `MemTotal`） |
-| 哪些贴图该保住 | UI 贴图、≤256 KiB 的小图、最近 300 帧用过的图；其余在"能证明可重载"时照常回收 |
-| 与其它模组冲突 | 补丁用 `Priority.Low` 排在别人之后；我们的判定失败一律回退成原版行为 |
-| 开关文件 | 没有。只有唯一的应急开关（下表） |
-
-唯一的应急手段：
+## 6. 开关与回滚 / Переключатели и откат
 
 | 目标 | 做法 |
 |---|---|
-| 一键停用全部补丁 | 新建 `files/game/agenttouchfix.off`（内容随意），重启游戏 |
-| 彻底移除 | 删除 `files/game/Mods/agenttouchfix/` 整个目录（或移除 `ModsConfig.xml` 里的条目） |
+| 完全停用 | 删除 `files/game/Mods/agenttouchfix/Assemblies/AgentTouchFix.dll` |
+| 只保留原材质路径（关掉图标修复） | 新建 `files/game/agenttouchfix.iconpath`，内容写 `material` |
 | 恢复原版模组列表 | 用 `files/save/Config/ModsConfig.xml.bak-*` 覆盖回去 |
-
-设计理由（为什么不做配置项，也不做"帧门/钉住/预算"这套护栏）：移植版本身已经提供了正确原语
-`GpuTextureService.WriteTextureCache(path, texture)` —— 写缓存 + 释放显存，这正是"驱逐"该有的语义。
-所以修复只需要恢复一条不变量：**任何贴图在像素可持久化之前不得被丢弃**。不变量成立后，调用频率、贴图大小、
-剩余内存都不再需要判断——引擎自己的回收逻辑照常工作。
 
 ---
 
@@ -197,7 +149,7 @@ evict: reversible=1234 persisted=37 kept=2 rss=1180MiB
 需要 .NET 10 SDK。
 
 ```bash
-dotnet test tests/TexSt/TexSt.csproj -c Release     # 46 条单测（纯逻辑，无需游戏）
+dotnet test tests/TexSt/TexSt.csproj -c Release     # 20 条单测（纯逻辑，无需游戏）
 dotnet build mod/AgentTouchFix.csproj -c Release    # 产出 AgentTouchFix.dll
 ```
 
@@ -229,34 +181,6 @@ bash vk/run_cases.sh build
 
 贴图是 `vk/assets/gen_assets.py` 现场生成的合成图（不透明 + 最后一个 texel 透明，复刻真实贴图形态），
 仓库中**不包含任何游戏美术资源**。
-
-## 8b. 单元测试 / Юнит-тесты
-
-CI 上跑两组，全部是纯逻辑，不需要游戏程序集、不需要设备：
-
-| 套件 | 条数 | 覆盖 |
-|---|---|---|
-| `TexStMath` / `IconPathDecision` | 20 | 着色器 ST 数学、图标材质路由决策 |
-| `EvictRules` | 26 | 驱逐策略 |
-
-`EvictRules` 的用例逐条对应设计评审里的失败场景：
-
-| 用例 | 断言 |
-|---|---|
-| `NoSourcePath_IsNeverEvicted` | 程序化贴图 / 纯色图永不驱逐 |
-| `LooseFile_EvictsWithoutAnyWrite` | 有 loose 文件 → 零写盘 |
-| `AlreadyPersisted_EvictsWithoutWritingAgain` | `durable` 记忆 → 二次驱逐不重写 |
-| `PixelsInRam_ArePersistedOnceThenDropped` | 只有内存像素 → 先落盘一次 |
-| `NothingToReopenFrom_IsKeptWhenThereIsRoom` | 无处可取 → 留在内存 |
-| `NothingToReopenFrom_IsDroppedOnlyUnderPressure` | 超预算才允许 `ForcedEvict` |
-| `RepeatedEvictions_WriteAtMostOncePerTexture` | 同一贴图驱逐 25 次，写盘恰好 1 次 |
-| `UnknownBudget_NeverReportsPressure` | `/proc/meminfo` 读失败不得被当成有余量 |
-| `KeepBudget_IsAQuarterOfRamWithinBounds` | 2 GiB→512 MiB，8 GiB→2 GiB，512 MiB→256 MiB |
-
-```bash
-dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
-# Passed! - Failed: 0, Passed: 46, Skipped: 0, Total: 46
-```
 
 ---
 

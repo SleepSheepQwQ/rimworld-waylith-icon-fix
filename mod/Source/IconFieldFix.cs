@@ -43,7 +43,6 @@ namespace AgentTouchFix
             _mode = string.IsNullOrEmpty(mode) ? IconPath.Plain : mode.Trim().ToLowerInvariant();
         }
 
-        [HarmonyPriority(Priority.Low)]   // other mods get the first word on ThingIcon
         internal static void Prefix(object[] __args)
         {
             try
@@ -182,7 +181,6 @@ namespace AgentTouchFix
 
         internal static void Install()
         {
-
             Type widgets = Refl.T("Verse.Widgets");
             if (widgets == null) { Refl.Warn("drawfix: Verse.Widgets not found"); return; }
 
@@ -199,23 +197,7 @@ namespace AgentTouchFix
             {
                 MethodInfo pre = typeof(IconFieldFix).GetMethod("Prefix",
                     BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-
-                string compat = "solo";
-                try
-                {
-                    Patches info = Harmony.GetPatchInfo(target);
-                    if (info != null && info.Prefixes != null)
-                    {
-                        var others = new System.Collections.Generic.List<string>();
-                        foreach (Patch pp in info.Prefixes)
-                            if (pp.owner != "sleepsheep.waylith.agenttouchfix.drawfix") others.Add(pp.owner);
-                        if (others.Count > 0) compat = string.Join("+", others);
-                    }
-                }
-                catch { }
-
                 new Harmony("sleepsheep.waylith.agenttouchfix.drawfix").Patch(target, new HarmonyMethod(pre));
-                if (compat != "solo") Refl.Info("drawfix: sharing ThingIcon with " + compat + " (priority Low)");
                 Refl.Info("drawfix: prefix on Verse.Widgets.ThingIcon (uiIcon repaired, icon material dropped)");
             }
             catch (Exception e) { Refl.Warn("drawfix: patch failed: " + e.Message); }
