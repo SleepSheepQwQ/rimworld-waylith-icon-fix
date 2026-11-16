@@ -81,41 +81,49 @@ namespace AgentTouchFix
             if (_busy || __instance == null) return true;
             try
             {
+                if (Prop(__instance, "GpuResource") == null) return false;   // nothing to free
+
                 string src = Prop(__instance, "SourcePath") as string;
-                if (src == null) { Keep(0, "no-source"); return false; }
-
-                if (FileExists(src)) { Count(ref _evictFile); return true; }
-
                 string key = src + "|" + Prop(__instance, "width") + "x" + Prop(__instance, "height");
-                if (Durable(key)) { Count(ref _evictDurable); return true; }
-
                 object cpu = Prop(__instance, "CpuData");
-                if (cpu == null || !Truthy(Prop(cpu, "HasData")))
+
+                var facts = new EvictFacts(
+                    hasSource: src != null,
+                    fileExists: src != null && FileExists(src),
+                    durable: src != null && Durable(key),
+                    hasPixels: cpu != null && Truthy(Prop(cpu, "HasData")),
+                    pressured: Pressured());
+
+                switch (EvictRules.Decide(facts))
                 {
-                    if (Pressured())
-                    {
-                        // Keeping without pixels is free of I/O but not of RAM. Under pressure we accept
-                        // the engine's own gamble rather than risk being killed: this is the only path
-                        // that can still lose a texture, and it is counted and logged.
-                        Interlocked.Increment(ref _forced);
+                    case EvictAction.Evict:
+                        if (facts.FileExists) Count(ref _evictFile); else Count(ref _evictDurable);
+                        return true;
+
+                    case EvictAction.ForcedEvict:
+                        Interlocked.Increment(ref _forced);   // the only path that can still lose a texture
                         Report();
                         return true;
-                    }
-                    Keep(Size(__instance), "no-pixels");
-                    return false;
-                }
 
-                _busy = true;
-                try
-                {
-                    _writeCache.Invoke(null, new object[] { src, __instance });
-                    MarkDurable(key);
-                    Count(ref _persisted);
-                }
-                catch (Exception e) { Keep(Size(__instance), "write-failed:" + (e.InnerException?.GetType().Name ?? e.GetType().Name)); }
-                finally { _busy = false; }
+                    case EvictAction.PersistThenEvict:
+                        _busy = true;
+                        try
+                        {
+                            _writeCache.Invoke(null, new object[] { src, __instance });
+                            MarkDurable(key);
+                            Count(ref _persisted);
+                        }
+                        catch (Exception e)
+                        {
+                            Keep(Size(__instance), "write-failed:" + (e.InnerException?.GetType().Name ?? e.GetType().Name));
+                        }
+                        finally { _busy = false; }
+                        return false;   // WriteTextureCache already queued this eviction
 
-                return false;   // WriteTextureCache already queued this eviction
+                    default:
+                        Keep(Size(__instance), src == null ? "no-source" : "no-reopen-source");
+                        return false;
+                }
             }
             catch (Exception e)
             {
@@ -192,10 +200,10 @@ namespace AgentTouchFix
                 }
                 catch { }
                 if (total <= 0) total = 4L << 30;
-                _keptBudget = (long)(total * 0.25);
+                _keptBudget = EvictRules.KeepBudget(total);
                 Refl.Info(Log + "keep budget " + (_keptBudget >> 20) + "MiB");
             }
-            return Interlocked.Read(ref _keptBytes) > _keptBudget;
+            return EvictRules.OverBudget(Interlocked.Read(ref _keptBytes), _keptBudget);
         }
 
         private static void Keep(long bytes, string why)
