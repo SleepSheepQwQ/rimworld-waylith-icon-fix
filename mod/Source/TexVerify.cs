@@ -45,6 +45,37 @@ namespace AgentTouchFix
         private static PropertyInfo _frameSerial;
         private static bool _resolved;
 
+        // Mods listed one per line in files/game/agenttouchfix.texdeny are left completely alone:
+        // any texture whose path contains one of these substrings is evicted exactly as the port decides.
+        private static string[] _deny = new string[0];
+        private static bool _strictCompat;
+
+        private static void ReadDeny()
+        {
+            try
+            {
+                string p = "/data/data/com.ports1de.waylith/files/game/agenttouchfix.texdeny";
+                if (!System.IO.File.Exists(p)) return;
+                var lines = new List<string>();
+                foreach (string raw in System.IO.File.ReadAllLines(p))
+                {
+                    string v = (raw ?? "").Trim();
+                    if (v.Length > 0 && !v.StartsWith("#")) lines.Add(v);
+                }
+                _deny = lines.ToArray();
+                if (_deny.Length > 0) Refl.Info(Log + "deny list: " + string.Join(", ", _deny));
+            }
+            catch { }
+        }
+
+        private static bool Denied(string src)
+        {
+            if (src == null || _deny.Length == 0) return false;
+            foreach (string d in _deny)
+                if (src.IndexOf(d, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
         internal static void Init()
         {
             _enabled = Flag("agenttouchfix.texverify", "on");
@@ -55,6 +86,7 @@ namespace AgentTouchFix
             _capBytes = mb * 1024L * 1024L;
             if (!_enabled) { Refl.Info(Log + "disabled by flag"); return; }
 
+            ReadDeny();
             TryResolve();
             MethodInfo evict = typeof(TexVerify).GetMethod("Evict_Prefix",
                 BindingFlags.Static | BindingFlags.NonPublic);
@@ -63,9 +95,34 @@ namespace AgentTouchFix
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (m == null) { Refl.Warn(Log + "Texture2D.Evict() not found"); return; }
 
-            new HarmonyLib.Harmony("sleepsheep.waylith.agenttouchfix.texverify").Patch(m, new HarmonyMethod(evict));
+            // Compatibility probe: if another mod already patches Texture2D.Evict(), we run with
+            // Priority.Low (their verdict wins) and, in strict mode, we do not install at all.
+            string compat = "solo";
+            try
+            {
+                Patches info = HarmonyLib.Harmony.GetPatchInfo(m);
+                if (info != null && info.Prefixes != null)
+                {
+                    var others = new List<string>();
+                    foreach (Patch p in info.Prefixes)
+                        if (p.owner != "sleepsheep.waylith.agenttouchfix.texverify") others.Add(p.owner);
+                    if (others.Count > 0) compat = string.Join("+", others);
+                }
+            }
+            catch { }
+
+            _strictCompat = Flag("agenttouchfix.texcompat", "passive") == false;   // "strict" => false
+            if (compat != "solo" && _strictCompat)
+            {
+                Refl.Warn(Log + "Texture2D.Evict already patched by " + compat + "; strict compat -> not installing");
+                return;
+            }
+
+            new HarmonyLib.Harmony("sleepsheep.waylith.agenttouchfix.texverify")
+                .Patch(m, new HarmonyMethod(typeof(TexVerify).GetMethod("Evict_Prefix",
+                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)));
             Refl.Info(Log + "verified eviction installed (grace=" + _graceFrames + "f proof=" + _proofTtl
-                      + "s cap=" + (mb) + "MiB pin=" + _pin + ")");
+                      + "s cap=" + (mb) + "MiB pin=" + _pin + " compat=" + compat + ")");
         }
 
         private static void TryResolve()
@@ -83,6 +140,8 @@ namespace AgentTouchFix
         }
 
         // ------------------------------------------------------------------ the gate
+        [HarmonyPriority(Priority.Low)]   // Run after other mods' prefixes: if any of them already
+                                          // decided this eviction, we must not override it.
         internal static bool Evict_Prefix(object __instance)
         {
             try
@@ -92,6 +151,7 @@ namespace AgentTouchFix
                 if (gpu == null) { Interlocked.Increment(ref _skipNoVal); return false; }
 
                 string src = Prop(__instance, "SourcePath") as string;
+                if (Denied(src)) return true;                         // owned by an opted-out mod
                 object cpu = Prop(__instance, "CpuData");
                 if (src == null || cpu == null) { Interlocked.Increment(ref _skipNoVal); return false; }
 
