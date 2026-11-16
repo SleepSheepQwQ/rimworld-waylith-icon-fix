@@ -114,6 +114,8 @@ namespace AgentTouchFix
             try
             {
                 if (__args == null || __args.Length < 4) return;
+                if (!InGame()) return;                       // touching materials during load deferred-resolves
+                                                             // them and breaks PlayDataLoader - never do that
                 string defName = Prop(__args[2], "defName") as string ?? "?";
                 if (!Once("c2:" + defName, 60)) return;
 
@@ -236,6 +238,21 @@ namespace AgentTouchFix
         }
 
         // ---------------------------------------------------------------- helpers
+        /// True only while a map is actually running; anything earlier must stay untouched.
+        private static bool InGame()
+        {
+            try
+            {
+                object cur = Refl.T("Verse.Current");
+                object state = cur == null ? null : Prop(cur, "ProgramState");
+                string name = state?.ToString() ?? "";
+                return name == "Playing" || name == "Map" || name == "Entry";
+            }
+            catch { return false; }
+        }
+
+        private static bool _entryLogged;
+
         private static object Tex(object mat, string prop)
         {
             try { return mat.GetType().GetMethod("GetTexture", new[] { typeof(string) })?.Invoke(mat, new object[] { prop }); }
