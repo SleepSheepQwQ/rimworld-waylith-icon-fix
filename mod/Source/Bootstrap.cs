@@ -21,9 +21,9 @@ namespace AgentTouchFix
                 IconFieldFix.Init("");
                 IconFieldFix.Install();
 
-                TexVerify.Init();
+                EvictPolicy.Init();
 
-                Refl.Info("BUILD v2.6.0 - icon repair + verified eviction (no configuration)");
+                Refl.Info("BUILD v3.0.0 - icon repair + persist-then-drop eviction");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
