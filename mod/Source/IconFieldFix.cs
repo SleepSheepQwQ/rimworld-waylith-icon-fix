@@ -43,6 +43,7 @@ namespace AgentTouchFix
             _mode = string.IsNullOrEmpty(mode) ? IconPath.Plain : mode.Trim().ToLowerInvariant();
         }
 
+        [HarmonyPriority(Priority.Low)]   // other mods get the first word on ThingIcon
         internal static void Prefix(object[] __args)
         {
             try
@@ -50,6 +51,9 @@ namespace AgentTouchFix
                 if (__args == null || __args.Length < 2) return;
                 object def = __args[1];
                 if (def == null) return;
+                // Widgets.ThingIcon(Rect, Thing, ...) passes a Thing: repair the ThingDef behind it
+                object innerDef = Prop(def, "def");
+                if (innerDef != null && innerDef != def) def = innerDef;
                 if (_defType != def.GetType()) Resolve(def.GetType());
 
                 object icon = _fIcon.GetValue(def);
@@ -174,6 +178,21 @@ namespace AgentTouchFix
             return null;
         }
 
+        private static object Prop(object o, string name)
+        {
+            if (o == null) return null;
+            try
+            {
+                for (Type c = o.GetType(); c != null; c = c.BaseType)
+                {
+                    var p = c.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (p != null) return p.GetValue(o, null);
+                }
+            }
+            catch { }
+            return null;
+        }
+
         private static void WarnOnce(string m)
         {
             if (Interlocked.Exchange(ref _warned, 1) == 0) Refl.Warn("drawfix: " + m);
@@ -181,23 +200,43 @@ namespace AgentTouchFix
 
         internal static void Install()
         {
+
             Type widgets = Refl.T("Verse.Widgets");
             if (widgets == null) { Refl.Warn("drawfix: Verse.Widgets not found"); return; }
 
-            MethodInfo target = null;
+            var targets = new System.Collections.Generic.List<MethodInfo>();
             foreach (MethodInfo m in widgets.GetMethods(BindingFlags.Public | BindingFlags.Static))
             {
                 if (m.Name != "ThingIcon") continue;
                 ParameterInfo[] ps = m.GetParameters();
-                if (ps.Length == 8 && ps[1].ParameterType.Name == "ThingDef") { target = m; break; }
+                if (ps.Length < 2 || ps[0].ParameterType.Name != "Rect") continue;
+                if (ps[1].ParameterType.Name == "ThingDef" || ps[1].ParameterType.Name == "Thing")
+                    targets.Add(m);
             }
-            if (target == null) { Refl.Warn("drawfix: ThingIcon(Rect, ThingDef, ...) not found"); return; }
+            if (targets.Count == 0) { Refl.Warn("drawfix: no ThingIcon(Rect, Thing|ThingDef, ...) overloads found"); return; }
 
             try
             {
                 MethodInfo pre = typeof(IconFieldFix).GetMethod("Prefix",
                     BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                new Harmony("sleepsheep.waylith.agenttouchfix.drawfix").Patch(target, new HarmonyMethod(pre));
+
+                string compat = "solo";
+                try
+                {
+                    Patches info = Harmony.GetPatchInfo(target);
+                    if (info != null && info.Prefixes != null)
+                    {
+                        var others = new System.Collections.Generic.List<string>();
+                        foreach (Patch pp in info.Prefixes)
+                            if (pp.owner != "sleepsheep.waylith.agenttouchfix.drawfix") others.Add(pp.owner);
+                        if (others.Count > 0) compat = string.Join("+", others);
+                    }
+                }
+                catch { }
+
+                foreach (MethodInfo t in targets)
+                    new Harmony("sleepsheep.waylith.agenttouchfix.drawfix").Patch(t, new HarmonyMethod(pre));
+                Refl.Info("drawfix: patched " + targets.Count + " ThingIcon overload(s)");
                 Refl.Info("drawfix: prefix on Verse.Widgets.ThingIcon (uiIcon repaired, icon material dropped)");
             }
             catch (Exception e) { Refl.Warn("drawfix: patch failed: " + e.Message); }
