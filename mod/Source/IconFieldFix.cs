@@ -223,7 +223,7 @@ namespace AgentTouchFix
                 string compat = "solo";
                 try
                 {
-                    Patches info = Harmony.GetPatchInfo(target);
+                    Patches info = Harmony.GetPatchInfo(targets[0]);
                     if (info != null && info.Prefixes != null)
                     {
                         var others = new System.Collections.Generic.List<string>();
