@@ -82,7 +82,7 @@ namespace AgentTouchFix
                 .Patch(m, new HarmonyMethod(typeof(TexVerify).GetMethod("Evict_Prefix",
                     BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)));
             Refl.Info(Log + "verified eviction installed (grace=" + GraceFrames + "f proof=" + ProofTtl
-                      + "s cap=" + (mb) + "MiB pin=" + _pin + " compat=" + compat + ")");
+                      + "s cap=" + (_capBytes >> 20) + "MiB compat=" + compat + ")");
         }
 
         private static void TryResolve()
