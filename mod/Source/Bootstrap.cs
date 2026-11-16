@@ -23,7 +23,7 @@ namespace AgentTouchFix
 
                 EvictPolicy.Init();
 
-                Refl.Info("BUILD v3.0.0 - icon repair + persist-then-drop eviction");
+                Refl.Info("BUILD v3.2.0 - icon repair + cheap-reopen eviction");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
