@@ -30,7 +30,7 @@ namespace AgentTouchFix
 
                 IconFieldFix.Init(mode);
                 IconFieldFix.Install();
-                DrawPathFix.Init();
+                UvFix.Init();
                 Probe.Init();
 
                 Refl.Info("BUILD v41-slim (2.4.0) - build-menu icon repair"
