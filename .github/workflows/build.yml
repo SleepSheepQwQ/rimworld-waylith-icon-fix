@@ -26,18 +26,18 @@ jobs:
 
       - name: Package
         run: |
-          DLL=$(find mod/bin/Release -name AgentTouchFix.dll | head -1)
-          test -n "$DLL" || { echo "AgentTouchFix.dll not found"; exit 1; }
-          mkdir -p dist/AgentTouchFix/Assemblies
-          cp mod/About/About.xml dist/AgentTouchFix/
-          cp "$DLL" dist/AgentTouchFix/Assemblies/
-          cd dist && zip -qr ../AgentTouchFix.zip AgentTouchFix
+          DLL=$(find mod/bin/Release -name GlyphFix.dll | head -1)
+          test -n "$DLL" || { echo "GlyphFix.dll not found"; exit 1; }
+          mkdir -p dist/GlyphFix/Assemblies
+          cp mod/About/About.xml dist/GlyphFix/
+          cp "$DLL" dist/GlyphFix/Assemblies/
+          cd dist && zip -qr ../GlyphFix.zip AgentTouchFix
           cd ..
           echo "--- artifact ---"
-          md5sum "$DLL" AgentTouchFix.zip
-          stat -c '%n %s bytes' "$DLL" AgentTouchFix.zip
+          md5sum "$DLL" GlyphFix.zip
+          stat -c '%n %s bytes' "$DLL" GlyphFix.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: AgentTouchFix
-          path: AgentTouchFix.zip
+          path: GlyphFix.zip
