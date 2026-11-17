@@ -5,54 +5,78 @@ using HarmonyLib;
 namespace AgentTouchFix
 {
     /// <summary>
-    /// The equipment box beside the Draft button draws the weapon icon at a small size and comes out
-    /// as a grey-white slab with one dark bar, while the Gear tab (larger, mip 0) looks fine.
-    /// Weapon DDS files in this port ship a single mip level although textures.info claims 7-9, and
-    /// material _MainTex_ST here is (offset=0, scale~0.956). Both faults show up only when the icon is
-    /// sampled small. So: draw the icon ourselves with identity UVs straight from mip 0, and skip
-    /// Widgets.ThingIcon for the Thing overload that the equipment box uses.
+    /// The gizmo to the right of Draft is the weapon's attack verb (Command_VerbTarget.DrawIcon).
+    /// When the command is disabled, Command.GizmoOnGUIInt forces parms.lowLight = true, so
+    /// Widgets.ThingIcon builds a ShaderDatabase.GrayscaleGUI material whose maskTex comes from
+    /// material.GetTexture(MaskTex). Weapon defs have no maskPath, so maskTex is null and the icon
+    /// renders as a desaturated near-white slab with one dark bar, while the Gear tab (grayscale
+    /// always false) looks right.
+    ///
+    /// Fix: drop the grayscale flag for icons whose graphic has no mask texture. The engine then
+    /// draws the normal UI material; the caller's GUI.color (SaturationChanged(0)/alpha 0.6) still
+    /// dims it, so disabled-state feedback is preserved without the broken shader path.
     /// </summary>
     internal static class UvFix
     {
-        private static MethodInfo _draw;
-        private static object _unit;
-        private static bool _warned;
-        private static int _drawn;
+        private static int _flipped;
+        private static bool _logged;
 
         internal static void Init()
         {
             try
             {
-                Type rectT = FindType("UnityEngine.Rect");
-                Type guiT = FindType("UnityEngine.GUI");
-                if (rectT == null || guiT == null) { Refl.Warn("uvfix: Rect/GUI type missing"); return; }
-
-                foreach (MethodInfo m in guiT.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                {
-                    if (m.Name != "DrawTextureWithTexCoords") continue;
-                    ParameterInfo[] ps = m.GetParameters();
-                    if (ps.Length == 3 && ps[1].ParameterType.Name == "Texture" && ps[2].ParameterType == rectT)
-                    { _draw = m; break; }
-                }
-                if (_draw == null) { Refl.Warn("uvfix: GUI.DrawTextureWithTexCoords(Rect,Texture,Rect) missing"); return; }
-                _unit = Activator.CreateInstance(rectT, new object[] { 0f, 0f, 1f, 1f });
-
                 Type widgets = FindType("Verse.Widgets");
+                Type shaderDb = FindType("Verse.ShaderDatabase");
+                if (widgets == null) { Refl.Warn("grayfix: Verse.Widgets missing"); return; }
+                if (shaderDb != null) _grayShader = Get(shaderDb, "GrayscaleGUI");
+                if (_grayShader == null) { Refl.Warn("grayfix: ShaderDatabase.GrayscaleGUI missing"); return; }
+
                 MethodInfo prefix = typeof(UvFix).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
                 int n = 0;
                 foreach (MethodInfo m in widgets.GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
                     if (m.Name != "ThingIcon") continue;
                     ParameterInfo[] ps = m.GetParameters();
-                    if (ps.Length < 2 || ps[0].ParameterType.Name != "Rect" || ps[1].ParameterType.Name != "Thing") continue;
-                    new Harmony("sleepsheep.waylith.agenttouchfix.uvfix").Patch(m, new HarmonyMethod(prefix));
+                    if (ps.Length < 2 || ps[1].ParameterType.Name != "Thing") continue;
+                    int gi = -1;
+                    for (int i = 2; i < ps.Length; i++) if (ps[i].ParameterType == typeof(bool)) gi = i;
+                    if (gi < 0) continue;
+                    _grayIndex = gi;
+                    new Harmony("sleepsheep.waylith.agenttouchfix.grayfix").Patch(m, new HarmonyMethod(prefix));
                     n++;
                 }
-                Refl.Info("uvfix: patched " + n + " ThingIcon(Rect,Thing,...) overload(s)");
+                Refl.Info("grayfix: patched " + n + " ThingIcon(Rect,Thing,...) overload(s), grayscale arg #" + _grayIndex);
             }
-            catch (Exception e) { Refl.Warn("uvfix: install failed: " + e.Message); }
+            catch (Exception e) { Refl.Warn("grayfix: install failed: " + e.Message); }
         }
 
+        private static object _grayShader;
+        private static int _grayIndex = -1;
+
+        private static bool Prefix(object[] __args)
+        {
+            try
+            {
+                if (_grayIndex < 0 || __args == null || __args.Length <= _grayIndex) return true;
+                if (!(__args[_grayIndex] is bool wantGray) || !wantGray) return true;
+
+                object thing = __args[1];
+                object graphic = thing == null ? null : Get(thing, "Graphic");
+                object mat = graphic == null ? null : Get(graphic, "MatSingle");
+                object mask = mat == null ? null : Get(mat, "maskTex");
+                if (mask != null) return true;                 // real mask: grayscale works as intended
+
+                __args[_grayIndex] = false;                    // no mask -> plain UI material
+                _flipped++;
+                if (!_logged) { _logged = true; Refl.Info("grayfix: first flip, mask was null"); }
+                return true;
+            }
+            catch (Exception e)
+            {
+                if (!_logged) { _logged = true; Refl.Warn("grayfix: skipped: " + e.Message); }
+                return true;
+            }
+        }
 
         private static Type FindType(string name)
         {
@@ -68,8 +92,7 @@ namespace AgentTouchFix
         private static object Get(object o, string name)
         {
             if (o == null) return null;
-            Type t = o.GetType();
-            for (Type c = t; c != null; c = c.BaseType)
+            for (Type c = o.GetType(); c != null; c = c.BaseType)
             {
                 PropertyInfo pi = c.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (pi != null) { try { return pi.GetValue(o, null); } catch { } }
@@ -77,30 +100,6 @@ namespace AgentTouchFix
                 if (fi != null) { try { return fi.GetValue(o); } catch { } }
             }
             return null;
-        }
-
-        private static bool Prefix(object[] __args)
-        {
-            try
-            {
-                if (__args == null || __args.Length < 2) return true;
-                object thing = __args[1];
-                if (thing == null) return true;
-                object def = Get(thing, "def");
-                if (def == null) return true;
-                object tex = Get(def, "uiIcon");
-                if (tex == null) return true;                 // let the normal path handle "no icon"
-                if (Get(tex, "width") is int w && w <= 0) return true;
-
-                _draw.Invoke(null, new object[] { __args[0], tex, _unit });
-                _drawn++;
-                return false;                                 // we drew it: skip the broken path
-            }
-            catch (Exception e)
-            {
-                if (!_warned) { _warned = true; Refl.Warn("uvfix: draw failed, falling back: " + e.Message); }
-                return true;
-            }
         }
     }
 }
