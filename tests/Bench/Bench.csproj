@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Headless micro-benchmark: "old Prefix logic" vs "new fast path", plus the invariants both must
+       keep. The mod's own source files are compiled straight into this project (no game, no Harmony
+       runtime, no device), so the numbers come from the shipped code and not from a re-implementation.
+       Run it from the repo root with dotnet run, project tests/Bench/Bench.csproj, Release. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PrefixBench</AssemblyName>
+    <RootNamespace>PrefixBench</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Optimize>true</Optimize>
+    <Deterministic>true</Deterministic>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../mod/Source/IconFieldFix.cs" Link="mod/IconFieldFix.cs" />
+    <Compile Include="../../mod/Source/IconPathDecision.cs" Link="mod/IconPathDecision.cs" />
+    <Compile Include="../../mod/Source/Refl.cs" Link="mod/Refl.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../stubs/GameStubs/GameStubs.csproj" />
+    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+  </ItemGroup>
+
+</Project>

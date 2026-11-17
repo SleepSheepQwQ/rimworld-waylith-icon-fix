@@ -151,6 +151,7 @@ grep -a -c "dropped icon material"    $L   # > 0 表示修复真的作用到了�
 ```bash
 dotnet test tests/TexSt/TexSt.csproj -c Release     # 20 条单测（纯逻辑，无需游戏）
 dotnet build mod/AgentTouchFix.csproj -c Release    # 产出 AgentTouchFix.dll
+dotnet run --project tests/Bench/Bench.csproj -c Release   # 前缀微基准：旧逻辑 vs 快速路径
 ```
 
 **默认构建 = 图标修复**（纯反射实现，不需要任何游戏程序集）。
@@ -192,6 +193,7 @@ mod/About/About.xml    模组元数据
 input-layer/           可选的触控/鼠标层修复（需要游戏程序集，默认不编译）
 stubs/GameStubs/       Assembly-CSharp 编译期桩（不随仓库分发游戏 DLL）
 tests/TexSt/           20 条 xunit 单测
+tests/Bench/           前缀微基准（旧逻辑 vs 快速路径，1e6 次/用例）
 vk/                    Vulkan 离屏复现器 + 合成贴图生成脚本
 docs/report-zh-ru.md   俄/中双语错误报告（含根因、证据、给上游的建议）
 ```

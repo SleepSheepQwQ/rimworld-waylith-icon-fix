@@ -21,6 +21,9 @@ jobs:
       - name: Build the mod
         run: dotnet build mod/AgentTouchFix.csproj -c Release -v minimal
 
+      - name: Prefix benchmark (old logic vs fast path, 1e6 calls per case)
+        run: dotnet run --project tests/Bench/Bench.csproj -c Release -v minimal
+
       - name: Package
         run: |
           DLL=$(find mod/bin/Release -name AgentTouchFix.dll | head -1)
@@ -29,7 +32,10 @@ jobs:
           cp mod/About/About.xml dist/AgentTouchFix/
           cp "$DLL" dist/AgentTouchFix/Assemblies/
           cd dist && zip -qr ../AgentTouchFix.zip AgentTouchFix
-          cd .. && ls -l AgentTouchFix.zip && stat -c '%n %s bytes' dist/AgentTouchFix/Assemblies/AgentTouchFix.dll
+          cd ..
+          echo "--- artifact ---"
+          md5sum "$DLL" AgentTouchFix.zip
+          stat -c '%n %s bytes' "$DLL" AgentTouchFix.zip
 
       - uses: actions/upload-artifact@v4
         with:
