@@ -5,19 +5,25 @@ using HarmonyLib;
 namespace AgentTouchFix
 {
     /// <summary>
-    /// The gizmo to the right of Draft is the weapon's attack verb (Command_VerbTarget.DrawIcon).
-    /// When the command is disabled, Command.GizmoOnGUIInt forces parms.lowLight = true, so
-    /// Widgets.ThingIcon builds a ShaderDatabase.GrayscaleGUI material whose maskTex comes from
-    /// material.GetTexture(MaskTex). Weapon defs have no maskPath, so maskTex is null and the icon
-    /// renders as a desaturated near-white slab with one dark bar, while the Gear tab (grayscale
-    /// always false) looks right.
+    /// The box beside Draft is the weapon attack gizmo (Command_VerbTarget.DrawIcon). When the
+    /// command is disabled, Command.GizmoOnGUIInt sets parms.lowLight = true, which reaches
+    /// Widgets.ThingIcon(..., grayscale: true). That branch (Widgets.cs:504-523) builds a material
+    /// from ShaderDatabase.GrayscaleGUI == LoadShader("Misc/GrayscaleGUI").
     ///
-    /// Fix: drop the grayscale flag for icons whose graphic has no mask texture. The engine then
-    /// draws the normal UI material; the caller's GUI.color (SaturationChanged(0)/alpha 0.6) still
-    /// dims it, so disabled-state feedback is preserved without the broken shader path.
+    /// This port does not ship that shader program: Waylith.Rendering.ShaderRegistry.Resolve falls
+    /// back to the default shader for unregistered names, so the icon is drawn through the wrong
+    /// program and shows as a flat grey slab with nothing visible.
+    ///
+    /// Fix: force grayscale = false for Thing icons. Widgets.cs:504 then keeps the already resolved
+    /// UI material. The disabled look is still conveyed by the caller, which sets GUI.color to a
+    /// desaturated, half-alpha tint (Command.cs:356).
+    ///
+    /// No member names are looked up here: the flag is located by parameter type on the overload
+    /// whose second parameter is a Thing (Widgets.cs:481), which is the only one carrying grayscale.
     /// </summary>
     internal static class UvFix
     {
+        private static int _grayIndex = -1;
         private static int _flipped;
         private static bool _logged;
 
@@ -26,56 +32,46 @@ namespace AgentTouchFix
             try
             {
                 Type widgets = FindType("Verse.Widgets");
-                Type shaderDb = FindType("Verse.ShaderDatabase");
-                if (widgets == null) { Refl.Warn("grayfix: Verse.Widgets missing"); return; }
-                if (shaderDb != null) _grayShader = Get(shaderDb, "GrayscaleGUI");
-                if (_grayShader == null) { Refl.Warn("grayfix: ShaderDatabase.GrayscaleGUI missing"); return; }
+                if (widgets == null) { Refl.Warn("grayfix: Verse.Widgets not found"); return; }
 
                 MethodInfo prefix = typeof(UvFix).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic);
-                int n = 0;
+                if (prefix == null) { Refl.Warn("grayfix: prefix missing"); return; }
+
+                int patched = 0;
                 foreach (MethodInfo m in widgets.GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
                     if (m.Name != "ThingIcon") continue;
                     ParameterInfo[] ps = m.GetParameters();
-                    if (ps.Length < 2 || ps[1].ParameterType.Name != "Thing") continue;
-                    int gi = -1;
-                    for (int i = 2; i < ps.Length; i++) if (ps[i].ParameterType == typeof(bool)) gi = i;
-                    if (gi < 0) continue;
-                    _grayIndex = gi;
+                    if (ps.Length != 7) continue;                       // Thing overload: rect,thing,alpha,rot,stack,scale,grayscale
+                    if (ps[0].ParameterType.Name != "Rect") continue;
+                    if (ps[1].ParameterType.Name != "Thing") continue;
+                    if (ps[6].ParameterType != typeof(bool)) continue;
+                    if (!ps[6].HasDefaultValue || !(ps[6].DefaultValue is bool d) || d) continue;   // default false
+                    _grayIndex = 6;
                     new Harmony("sleepsheep.waylith.agenttouchfix.grayfix").Patch(m, new HarmonyMethod(prefix));
-                    n++;
+                    patched++;
                 }
-                Refl.Info("grayfix: patched " + n + " ThingIcon(Rect,Thing,...) overload(s), grayscale arg #" + _grayIndex);
+                Refl.Info("grayfix: patched " + patched + " ThingIcon(Rect,Thing,...) overload(s), grayscale at #" + _grayIndex);
+                if (patched == 0) Refl.Warn("grayfix: no matching overload - nothing patched");
             }
-            catch (Exception e) { Refl.Warn("grayfix: install failed: " + e.Message); }
+            catch (Exception e) { Refl.Warn("grayfix: install threw " + e.GetType().Name + ": " + e.Message); }
         }
-
-        private static object _grayShader;
-        private static int _grayIndex = -1;
 
         private static bool Prefix(object[] __args)
         {
             try
             {
                 if (_grayIndex < 0 || __args == null || __args.Length <= _grayIndex) return true;
-                if (!(__args[_grayIndex] is bool wantGray) || !wantGray) return true;
-
-                object thing = __args[1];
-                object graphic = thing == null ? null : Get(thing, "Graphic");
-                object mat = graphic == null ? null : Get(graphic, "MatSingle");
-                object mask = mat == null ? null : Get(mat, "maskTex");
-                if (mask != null) return true;                 // real mask: grayscale works as intended
-
-                __args[_grayIndex] = false;                    // no mask -> plain UI material
+                if (!(__args[_grayIndex] is bool want) || !want) return true;
+                __args[_grayIndex] = false;
                 _flipped++;
-                if (!_logged) { _logged = true; Refl.Info("grayfix: first flip, mask was null"); }
-                return true;
+                if (!_logged) { _logged = true; Refl.Info("grayfix: first grayscale flip (icon " + _flipped + ")"); }
             }
             catch (Exception e)
             {
-                if (!_logged) { _logged = true; Refl.Warn("grayfix: skipped: " + e.Message); }
-                return true;
+                if (!_logged) { _logged = true; Refl.Warn("grayfix: prefix threw " + e.GetType().Name + ": " + e.Message); }
             }
+            return true;
         }
 
         private static Type FindType(string name)
@@ -85,19 +81,6 @@ namespace AgentTouchFix
             foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try { t = a.GetType(name); if (t != null) return t; } catch { }
-            }
-            return null;
-        }
-
-        private static object Get(object o, string name)
-        {
-            if (o == null) return null;
-            for (Type c = o.GetType(); c != null; c = c.BaseType)
-            {
-                PropertyInfo pi = c.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (pi != null) { try { return pi.GetValue(o, null); } catch { } }
-                FieldInfo fi = c.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (fi != null) { try { return fi.GetValue(o); } catch { } }
             }
             return null;
         }
