@@ -62,9 +62,11 @@ namespace AgentTouchFix
                 if (mesh == null || mat == null || _drawNowOrLater == null) return true;
 
                 ParameterInfo[] ps = _drawNowOrLater.GetParameters();
+                // drawNow MUST be true: the false branch of DrawMeshNowOrLater calls Graphics.DrawMesh
+                // again, i.e. the same deferred queue that renders nothing here (confirmed by IL scan).
                 object[] args = ps.Length == 6
-                    ? new object[] { mesh, loc, quat, mat, false, null }
-                    : new object[] { mesh, loc, quat, mat, false };
+                    ? new object[] { mesh, loc, quat, mat, true, null }
+                    : new object[] { mesh, loc, quat, mat, true };
                 _drawNowOrLater.Invoke(null, args);
                 _rerouted++;
                 return false;
