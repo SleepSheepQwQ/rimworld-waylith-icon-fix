@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <AssemblyName>AgentTouchFix</AssemblyName>
+    <AssemblyName>GlyphFix</AssemblyName>
     <RootNamespace>AgentTouchFix</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
