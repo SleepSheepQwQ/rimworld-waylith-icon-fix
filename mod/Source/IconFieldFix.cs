@@ -60,6 +60,16 @@ namespace AgentTouchFix
         // material type -> its "name" property, so the walk happens once per type
         private static readonly Dictionary<Type, PropertyInfo> _nameProp = new Dictionary<Type, PropertyInfo>();
 
+        // Invalidation. The caches above claim "this def is drawable", but the game rewrites uiIcon
+        // back to BadTex whenever play data is rebuilt: LanguageDatabase.SelectLanguage ->
+        // PlayDataLoader.ClearAllPlayData -> BuildableDef.PostLoad re-runs ResolveIcon, and dev
+        // hot-reload does the same. Without this, every icon cached before a language switch stays
+        // blank until the process restarts, and the old defs stay pinned through def->graphic->
+        // Material->Texture2D, which is exactly what PlayDataLoader's final GC is trying to collect.
+        private static int _nextProbe;                 // Environment.TickCount gate, ~1 ns per call
+        private static bool _probeOff, _probeSeen;
+        private static object _sentinel;
+
         internal static void Init(string mode)
         {
             _mode = string.IsNullOrEmpty(mode) ? IconPath.Plain : mode.Trim().ToLowerInvariant();
@@ -73,6 +83,8 @@ namespace AgentTouchFix
                 if (__args == null || __args.Length < 2) return;
                 object arg = __args[1];
                 if (arg == null) return;
+
+                if (unchecked(Environment.TickCount - _nextProbe) >= 0) Probe();   // int compare, ~1 ns
 
                 if (_done.Contains(arg)) return;   // steady state: one hash lookup, nothing else
 
@@ -270,8 +282,98 @@ namespace AgentTouchFix
             if (Interlocked.Exchange(ref _warned, 1) == 0) Refl.Warn("drawfix: " + m);
         }
 
+        /// <summary>Drop every cached verdict. Cheap: two container clears.</summary>
+        private static void ClearCaches(string why)
+        {
+            _done.Clear();
+            _names.Clear();
+            Refl.Info("drawfix: cache cleared (" + why + ")");
+        }
+
+        /// <summary>Postfix for PlayDataLoader.ClearAllPlayData / HotReloadDefs.</summary>
+        private static void OnPlayDataReload()
+        {
+            try { ClearCaches("play data reload"); } catch (Exception e) { WarnOnce(e.Message); }
+        }
+
+        /// <summary>
+        /// Fallback for the case where the reload hooks could not be installed: once every 250 ms,
+        /// compare a surviving def instance. A rebuilt DefDatabase hands out a different object, so
+        /// the caches are dropped. Never throws into the draw path; on any failure it switches
+        /// itself off for the rest of the process.
+        /// </summary>
+        private static void Probe()
+        {
+            _nextProbe = unchecked(Environment.TickCount + 250);
+            if (_probeOff) return;
+            try
+            {
+                object s = Sentinel();
+                if (s == null) return;                       // cannot observe: rely on the hooks
+                if (!ReferenceEquals(s, _sentinel))
+                {
+                    if (_probeSeen) ClearCaches("sentinel changed");
+                    _sentinel = s;
+                    _probeSeen = true;
+                }
+            }
+            catch (Exception e) { _probeOff = true; WarnOnce("probe disabled: " + e.Message); }
+        }
+
+        private static object Sentinel()
+        {
+            if (_defDbGet == null) return null;
+            return _defDbGet.Invoke(null, new object[] { "Steel" });   // 4x/s at most
+        }
+
+        private static MethodInfo _defDbGet;
+
+        private static void InstallInvalidation()
+        {
+            // 1) direct hooks on the two reload entry points
+            Type loader = Refl.T("Verse.PlayDataLoader");
+            MethodInfo post = typeof(IconFieldFix).GetMethod("OnPlayDataReload",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            int hooked = 0;
+            if (loader != null)
+            {
+                foreach (MethodInfo m in loader.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                {
+                    if (m.Name != "ClearAllPlayData" && m.Name != "HotReloadDefs") continue;
+                    if (m.GetParameters().Length != 0) continue;
+                    try
+                    {
+                        new Harmony("sleepsheep.waylith.agenttouchfix.drawfix.reload")
+                            .Patch(m, postfix: new HarmonyMethod(post));
+                        hooked++;
+                    }
+                    catch (Exception e) { Refl.Warn("drawfix: hook " + m.Name + " failed: " + e.Message); }
+                }
+            }
+            Refl.Info("drawfix: invalidation hooks on " + hooked + " PlayDataLoader method(s)");
+
+            // 2) sentinel for the fallback probe: DefDatabase<ThingDef>.GetNamedSilentFail("Steel")
+            try
+            {
+                Type open = null;
+                foreach (Type t in _defType.Assembly.GetTypes())
+                {
+                    if (t.Name == "DefDatabase`1" && t.Namespace == "Verse") { open = t; break; }
+                }
+                if (open != null)
+                {
+                    Type closed = open.MakeGenericType(_defType);
+                    _defDbGet = closed.GetMethod("GetNamedSilentFail",
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                }
+                Refl.Info("drawfix: sentinel " + (_defDbGet == null ? "unavailable" : "ready"));
+            }
+            catch (Exception e) { Refl.Warn("drawfix: sentinel setup failed: " + e.Message); }
+        }
+
         internal static void Install()
         {
+            if (_defType == null) _defType = Refl.T("Verse.ThingDef");
             Type widgets = Refl.T("Verse.Widgets");
             if (widgets == null) { Refl.Warn("drawfix: Verse.Widgets not found"); return; }
 
@@ -297,6 +399,8 @@ namespace AgentTouchFix
                 Refl.Info("drawfix: prefix on Verse.Widgets.ThingIcon (uiIcon repaired, icon material dropped)");
             }
             catch (Exception e) { Refl.Warn("drawfix: patch failed: " + e.Message); }
+
+            InstallInvalidation();
         }
 
         /// <summary>Reference identity: game types may override Equals/GetHashCode, and these are two
