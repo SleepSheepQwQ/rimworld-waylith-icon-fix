@@ -42,3 +42,10 @@ jobs:
         with:
           name: GlyphFix
           path: GlyphFix.zip
+
+      # Contract tests for the Odyssey instance-icon fallback. Deliberately the LAST step: while the
+      # implementation is still unlanded the decision function throws on purpose, and a red contract
+      # must not hide the build, the bench or the packaged artifact above. Remove nothing here - the
+      # feature is done when this step is green.
+      - name: Fallback contract tests (instance icon -> def.uiIcon -> def.graphic)
+        run: dotnet test tests/Fallback/Fallback.csproj -c Release -v minimal
