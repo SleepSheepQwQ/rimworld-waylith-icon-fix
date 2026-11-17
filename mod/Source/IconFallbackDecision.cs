@@ -48,11 +48,34 @@ namespace AgentTouchFix
         /// <param name="badTex">Verse.BaseContent.BadTex, used for reference identity only.</param>
         internal static IconSource Choose(object instanceTex, object defIcon, object defGraphicTex, object badTex)
         {
-            // NOT IMPLEMENTED ON PURPOSE. This body is the contract the four CI assertions in
-            // tests/Fallback/IconFallbackTests.cs lock down; the implementation branch fills it in.
-            // Until then tests/Fallback is red here and nowhere else - which is exactly what the
-            // red run recorded in VERIFICATION.md says.
-            throw new NotImplementedException("IconFallback.Choose (branch odyssey-icon-fallback)");
+            // Reference identity only: these are three fields on objects the mod does not own, so
+            // the only question that can be answered without a renderer is "is this the sentinel or
+            // nothing". "Usable" for the instance texture also covers a material without _MainTex
+            // and a texture that is not resident - the caller passes null in those cases, see
+            // MaterialUsable below.
+            if (Drawable(instanceTex, badTex)) return IconSource.Instance;
+            if (Drawable(defIcon, badTex)) return IconSource.DefUiIcon;
+            if (Drawable(defGraphicTex, badTex)) return IconSource.DefGraphic;
+            return IconSource.None;
+        }
+
+        /// <summary>Non-null and not the BadTex sentinel. A null <paramref name="badTex"/> never matches.</summary>
+        private static bool Drawable(object tex, object badTex)
+        {
+            if (tex == null) return false;
+            if (badTex != null && ReferenceEquals(tex, badTex)) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// The gate in front of <see cref="Choose"/> for the *instance* material: this port hands out
+        /// materials whose shader has no _MainTex, and textures that are not resident, and either one
+        /// makes the tile blank even though mainTexture may look non-null. Pure, so the three ways an
+        /// instance graphic can fail are tested without a renderer.
+        /// </summary>
+        internal static bool MaterialUsable(bool hasMaterial, bool hasMainTex, bool resident)
+        {
+            return hasMaterial && hasMainTex && resident;
         }
 
         /// <summary>
@@ -70,25 +93,36 @@ namespace AgentTouchFix
             switch (s)
             {
                 case IconSource.Instance: return "instance";
-                case IconSource.DefUiIcon: return "defUiIcon";
-                case IconSource.DefGraphic: return "defGraphic";
+                case IconSource.DefUiIcon: return "def.uiIcon";
+                case IconSource.DefGraphic: return "def.graphic";
                 default: return "none";
             }
         }
 
         /// <summary>
-        /// The single line the device check looks for, e.g.
-        /// <c>drawfix: icon fallback defUiIcon on Gun_Revolver</c>. Same "drawfix: " prefix and sink as
-        /// every other draw-time message, so it lands in files/game/agenttouchfix.log.
+        /// The single line the device check looks for, exactly
+        /// <c>drawfix: icon fallback &lt;source&gt; on &lt;defName&gt;</c>, e.g.
+        /// <c>drawfix: icon fallback def.uiIcon on Gun_Revolver</c>. Written through the same sink as
+        /// every other draw-time message, so it lands in files/game/agenttouchfix.log and shares the
+        /// "drawfix: " prefix the other lines use.
         ///
-        /// Emission is the caller's business: the "none" line is a diagnostic and must be rate-limited
-        /// (at most once per def per session, five in total), otherwise a def that can never be
-        /// repaired - it is retried every frame by design - would fill the log.
+        /// Emission is the caller's business, and only once per (defName, source): a def that can
+        /// never be repaired is retried on every draw by design, so the "none" line in particular
+        /// must be rate-limited or it would fill the log.
         /// </summary>
         internal static string Line(string defName, IconSource s)
         {
             return "drawfix: icon fallback " + Name(s) + " on "
                    + (string.IsNullOrEmpty(defName) ? "?" : defName);
+        }
+
+        /// <summary>
+        /// Periodic count, in the same shape as "drawfix: filled N icons at draw time", so a device log
+        /// shows at a glance whether one surface or the whole game went through the fallback.
+        /// </summary>
+        internal static string Summary(int n)
+        {
+            return "drawfix: icon fallback used " + n + (n == 1 ? " time" : " times");
         }
     }
 }

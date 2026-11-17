@@ -33,8 +33,24 @@ namespace AgentTouchFix.Tests
             Assert.Equal(IconSource.Instance, IconFallback.Choose(Tex, Bad, Bad, Bad));
         }
 
-        // ---------------------------------------------------------------- assertion 2
+        // ---------------------------------------------------------------- assertion 1b
 
+        [Theory]
+        [InlineData(true, true, true, true)]
+        [InlineData(false, true, true, false)]    // the material never resolved
+        [InlineData(true, false, true, false)]    // material has no readable mainTexture
+        [InlineData(true, true, false, false)]    // texture is not resident yet
+        [InlineData(false, false, false, false)]
+        public void Assertion1b_InstanceTextureCountsOnlyWhenItsMaterialIsReadable(
+            bool hasMaterial, bool hasMainTex, bool resident, bool usable)
+        {
+            // "instance texture resolvable" is three conditions on this port, not one: the gate must
+            // say no to a material without _MainTex and to a texture that has not been uploaded yet,
+            // otherwise the fallback hands Widgets a texture it will draw as another blank tile
+            Assert.Equal(usable, IconFallback.MaterialUsable(hasMaterial, hasMainTex, resident));
+        }
+
+        // ---------------------------------------------------------------- assertion 2
         [Fact]
         public void Assertion2_InstanceTextureEmpty_FallsBackToDefUiIcon()
         {
@@ -122,12 +138,16 @@ namespace AgentTouchFix.Tests
             //   grep "icon fallback" files/game/agenttouchfix.log
             Assert.Equal("drawfix: icon fallback instance on Gun_Revolver",
                 IconFallback.Line("Gun_Revolver", IconSource.Instance));
-            Assert.Equal("drawfix: icon fallback defUiIcon on Gun_Revolver",
+            Assert.Equal("drawfix: icon fallback def.uiIcon on Gun_Revolver",
                 IconFallback.Line("Gun_Revolver", IconSource.DefUiIcon));
-            Assert.Equal("drawfix: icon fallback defGraphic on Gun_Revolver",
+            Assert.Equal("drawfix: icon fallback def.graphic on Gun_Revolver",
                 IconFallback.Line("Gun_Revolver", IconSource.DefGraphic));
             // a def whose defName could not be read still produces one greppable line
             Assert.Equal("drawfix: icon fallback none on ?", IconFallback.Line(null, IconSource.None));
+
+            // the periodic count, so the device log says how broad the fallback was
+            Assert.Equal("drawfix: icon fallback used 1 time", IconFallback.Summary(1));
+            Assert.Equal("drawfix: icon fallback used 100 times", IconFallback.Summary(100));
         }
     }
 }
