@@ -12,6 +12,8 @@
   <ItemGroup>
     <Compile Include="../../mod/Source/TexStMath.cs" Link="TexStMath.cs" />
     <Compile Include="../../mod/Source/IconPathDecision.cs" Link="IconPathDecision.cs" />
+    <Compile Include="../../mod/Source/MaskName.cs" Link="MaskName.cs" />
+    <Compile Include="../../mod/Source/ExtensionFallback.cs" Link="ExtensionFallback.cs" />
   </ItemGroup>
 
   <ItemGroup>

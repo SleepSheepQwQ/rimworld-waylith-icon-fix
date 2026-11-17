@@ -34,6 +34,35 @@ The verdict cache is dropped on `PlayDataLoader.ClearAllPlayData` and `HotReload
 language cannot leave icons permanently blank; a 250 ms sentinel covers the case where those hooks
 are missing.
 
+## Known issues
+
+**Port defect: the double extension breaks every texture lookup that asks for a mask.** DLC art
+ships as `UniqueRevolverA_m.png.dds` and `Lynx_northm.psd.dds`, and this port builds its content
+index by stripping exactly one extension (`Verse/ModContentHolder.cs:56-63`), so the key becomes
+`UniqueRevolverA_m.png` / `Lynx_northm.psd` — the inner extension stays. `Texture2D.name` goes the
+same way (`Verse/ModDdsLoader.cs:19,74`). Vanilla asks for the bare name, because on desktop the
+index has no extension at all:
+
+```
+Graphic_Single.cs:97   maskTex  = ContentFinder<Texture2D>.Get(path + "_m", false)
+Graphic_Multi.cs:210   mask[0]  = ContentFinder<Texture2D>.Get("Lynx" + "_north" + "m", false)
+```
+
+Every mask lookup misses, the graphic is built with `maskTex = null`, the mask-aware shader samples
+an empty mask and the whole tile draws blank: Odyssey's 13 unique weapons, plus every animal whose
+directional masks exist (Ibex `*_eastm`, Lynx `*_eastm`) while Alpaca and Cow, which have no masks,
+render fine. The same shape also puts masks into `Graphic_Collection.subGraphics`, because that
+filter is a name test too (`Graphic_Collection.cs:58-66,92`, `!x.name.EndsWith("_m")`).
+
+GlyphFix repairs the lookup rather than the naming: a postfix on `ContentFinder<Texture2D>.Get` (and
+on `ModContentHolder<Texture2D>.Get` underneath it) fires **only when the lookup has already
+failed** and retries the same path with `.png` / `.psd` / `.jpg` / `.dds` appended, returning the
+first hit. Successful lookups are untouched, no index key is rewritten, and nothing is cached —
+misses included. One line per recovered texture: `content: extension fallback '<path>' -> '<hit>'`.
+`Texture2D.name` itself is deliberately left alone: the wrong-but-load-bearing value is what every
+other content path on this port already resolves against, so "fixing" it globally would move the
+breakage instead of removing it.
+
 ## Install
 
 Drop `GlyphFix` into `Mods/`, enable it, restart. Nothing else to configure.
