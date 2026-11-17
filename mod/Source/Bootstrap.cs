@@ -30,8 +30,9 @@ namespace AgentTouchFix
 
                 IconFieldFix.Init(mode);
                 IconFieldFix.Install();
+                UvFix.Init();
 
-                Refl.Info("BUILD v41-slim (2.4.0) - build-menu icon repair"
+                Refl.Info("BUILD 2.5.0 grayscalefix"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
