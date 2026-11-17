@@ -1,16 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>AgentTouchFix</name>
-  <author>sleepsheep</author>
-  <packageId>sleepsheep.waylith.agenttouchfix</packageId>
-  <modVersion>2.5.0</modVersion>
-  <supportedVersions>
-    <li>1.7</li>
-  </supportedVersions>
-  <description>Fixes blank build-menu icons in the RimWorld 1.7 Android (Waylith) port, plus touch/input repairs for the port's own gesture layer.
-  No game file is modified; everything is applied at runtime with Harmony.
-
-  Icons: the port's Material.mainTexture returns null, so BuildableDef.uiIcon can stay empty, and the CutoutComplexUI icon material can silently discard a whole tile (degenerate _MainTex_ST or a null _MainTex). The mod repairs uiIcon / drops that icon material at draw time, sending the icon through the same plain texture path the icons that already render use.
-
-  Logs to files/game/agenttouchfix.log. Switches: files/game/agenttouchfix.iconpath = material (keep the icon material).</description>
+  <name>GlyphFix</name>
+  <author>SleepSheep</author>
+  <packageId>sleepsheep.waylith.glyphfix</packageId>
+  <supportedVersions><li>1.7</li></supportedVersions>
+  <description>Repairs two rendering defects of the Waylith Android port: blank build-menu icons (uiIcon resolved to BadTex through an unrenderable CutoutComplexUI material) and the empty gizmo box beside Draft (Misc/GrayscaleGUI is not registered in this port, so disabled-command icons were drawn through the default shader). Steady-state cost 16.7 ns per patched call.</description>
 </ModMetaData>
