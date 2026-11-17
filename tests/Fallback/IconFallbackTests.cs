@@ -134,16 +134,16 @@ namespace AgentTouchFix.Tests
         [Fact]
         public void LogLine_IsTheTextTheDeviceCheckGrepsFor()
         {
-            // the user-side check in VERIFICATION.md greps for exactly these strings:
-            //   grep "icon fallback" files/game/agenttouchfix.log
-            Assert.Equal("drawfix: icon fallback instance on Gun_Revolver",
+            // the user-side check greps files/game/agenttouchfix.log for "icon fallback"; the line
+            // itself is exactly "icon fallback: <defName> via <source>"
+            Assert.Equal("icon fallback: Gun_Revolver via instance",
                 IconFallback.Line("Gun_Revolver", IconSource.Instance));
-            Assert.Equal("drawfix: icon fallback def.uiIcon on Gun_Revolver",
+            Assert.Equal("icon fallback: Gun_Revolver via def.uiIcon",
                 IconFallback.Line("Gun_Revolver", IconSource.DefUiIcon));
-            Assert.Equal("drawfix: icon fallback def.graphic on Gun_Revolver",
+            Assert.Equal("icon fallback: Gun_Revolver via def.graphic",
                 IconFallback.Line("Gun_Revolver", IconSource.DefGraphic));
             // a def whose defName could not be read still produces one greppable line
-            Assert.Equal("drawfix: icon fallback none on ?", IconFallback.Line(null, IconSource.None));
+            Assert.Equal("icon fallback: ? via none", IconFallback.Line(null, IconSource.None));
 
             // the periodic count, so the device log says how broad the fallback was
             Assert.Equal("drawfix: icon fallback used 1 time", IconFallback.Summary(1));

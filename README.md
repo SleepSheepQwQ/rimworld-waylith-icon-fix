@@ -21,6 +21,15 @@ default program and the icon draws as nothing — a flat grey slab. GlyphFix for
 false`; the disabled look still comes from the caller's `GUI.color` tint, so the icon dims instead
 of disappearing and brightens once the pawn is drafted.
 
+**3. Blank icon on a modified weapon (Odyssey).** The def icon is not the problem there: with
+`Gun_Revolver` + attachments the tile is empty because `Widgets.ThingIcon(Rect, Thing, ...)` draws
+the *instance* graphic's `mainTexture` (`Widgets.GetIconFor(Thing ...)`), and the material built per
+instance from the def's `graphicData` has no usable `_MainTex` / texture on this port. GlyphFix
+classifies that instance graphic in the `ThingIcon` prefix and substitutes `def.uiIcon`, falling back
+to `def.graphic.MatAt(defaultPlacingRot).mainTexture` when the def icon is broken too, dropping the
+material argument that painted nothing. One log line per def: `icon fallback: <defName> via
+<source>`. The draw call itself is untouched.
+
 ## Cost
 
 | | |

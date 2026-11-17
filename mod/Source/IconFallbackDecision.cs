@@ -101,10 +101,9 @@ namespace AgentTouchFix
 
         /// <summary>
         /// The single line the device check looks for, exactly
-        /// <c>drawfix: icon fallback &lt;source&gt; on &lt;defName&gt;</c>, e.g.
-        /// <c>drawfix: icon fallback def.uiIcon on Gun_Revolver</c>. Written through the same sink as
-        /// every other draw-time message, so it lands in files/game/agenttouchfix.log and shares the
-        /// "drawfix: " prefix the other lines use.
+        /// <c>icon fallback: &lt;defName&gt; via &lt;source&gt;</c>, e.g.
+        /// <c>icon fallback: Gun_Revolver via def.uiIcon</c>. Written through the same sink as every
+        /// other draw-time message, so it lands in files/game/agenttouchfix.log.
         ///
         /// Emission is the caller's business, and only once per (defName, source): a def that can
         /// never be repaired is retried on every draw by design, so the "none" line in particular
@@ -112,8 +111,8 @@ namespace AgentTouchFix
         /// </summary>
         internal static string Line(string defName, IconSource s)
         {
-            return "drawfix: icon fallback " + Name(s) + " on "
-                   + (string.IsNullOrEmpty(defName) ? "?" : defName);
+            return "icon fallback: " + (string.IsNullOrEmpty(defName) ? "?" : defName)
+                   + " via " + Name(s);
         }
 
         /// <summary>

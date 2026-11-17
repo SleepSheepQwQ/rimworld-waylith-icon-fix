@@ -30,10 +30,13 @@ namespace AgentTouchFix
 
                 IconFieldFix.Init(mode);
                 IconFieldFix.Install();
+                InstanceIconFallback.Install();
                 UvFix.Init();
 
-                Refl.Info("BUILD 2.5.0 grayscalefix"
-                          + " (uiIcon fallback + CutoutComplexUI material dropped at draw time)");
+                Refl.Info("BUILD 2.6.0 iconfallback"
+                          + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
+                          + ", instance icon -> def.uiIcon/def.graphic when the instance graphic is blank"
+                          + ", draw cache invalidated on def reload)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
