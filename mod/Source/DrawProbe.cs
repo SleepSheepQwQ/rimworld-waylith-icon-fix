@@ -180,6 +180,14 @@ namespace AgentTouchFix
             try { Refl.Info("probe: " + s); } catch { }
         }
 
+        /// <summary>Header line: written verbatim, so the first line of the file is exactly "BUILD ...".</summary>
+        private static void RawHeadLocked(string s)
+        {
+            _w.WriteLine(s);
+            _w.Flush();
+            _bytes += s.Length + 2;
+        }
+
         private static void RawLocked(string s)
         {
             string line = "[" + (DateTime.Now - _t0).TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture)
@@ -253,8 +261,9 @@ namespace AgentTouchFix
                 return;
             }
 
-            RawLocked("BUILD " + BuildTag + " log=" + _path
-                      + " runtime=" + DateTime.Now.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture));
+            // No timestamp prefix on this line: it must start with "BUILD " so it can be grepped for.
+            RawHeadLocked("BUILD " + BuildTag + " log=" + _path
+                          + " runtime=" + DateTime.Now.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture));
             RawLocked("PATH abs=" + _path + " preexisting-bytes=" + _bytes + " pid=" + Pid()
                       + " proc=" + ProcName() + " exe=" + ExePath() + " dll=" + AsmPath());
             RawLocked("PATH read-with=run-as " + PkgGuess() + " cat " + _path);

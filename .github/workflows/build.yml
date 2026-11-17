@@ -25,6 +25,9 @@ jobs:
           echo "BUILD_STAMP=$STAMP" >> "$GITHUB_ENV"
           dotnet build mod/AgentTouchFix.csproj -c Release -v minimal -p:BuildStamp="$STAMP"
 
+      - name: Probe smoke test (runs the real entry point, checks the log contract)
+        run: dotnet run --project tests/Smoke/Smoke.csproj -c Release -v minimal -p:BuildStamp="$BUILD_STAMP"
+
       - name: Package
         run: |
           DLL=$(find mod/bin/Release -name AgentTouchFix.dll | head -1)
@@ -35,10 +38,13 @@ jobs:
           cd dist && zip -qr ../AgentTouchFix.zip AgentTouchFix
           cd ..
           echo "--- probe wiring checks (the DLL must carry the probe, not just the repo) ---"
-          grep -a -q "drawprobe.log" "$DLL"     || { echo "FAIL: drawprobe.log name missing from DLL"; exit 1; }
-          grep -a -q "SHADERDB" "$DLL"          || { echo "FAIL: ShaderDatabase dump missing from DLL"; exit 1; }
-          grep -a -q "DrawTextureWithTexCoords" "$DLL" || { echo "FAIL: draw attempts missing from DLL"; exit 1; }
-          grep -a -q "$BUILD_STAMP" "$DLL"      || { echo "FAIL: build stamp $BUILD_STAMP missing from DLL"; exit 1; }
+          # string literals live in the metadata heap as UTF-16, the AssemblyMetadata stamp as UTF-8
+          chk() { strings -el "$DLL" 2>/dev/null | grep -q -e "$1" || grep -a -q -e "$1" "$DLL"; }
+          chk "drawprobe.log"           || { echo "FAIL: drawprobe.log name missing from DLL"; exit 1; }
+          chk "SHADERDB"                || { echo "FAIL: ShaderDatabase dump missing from DLL"; exit 1; }
+          chk "DrawTextureWithTexCoords" || { echo "FAIL: draw attempts missing from DLL"; exit 1; }
+          chk "DrawTexture+Material"    || { echo "FAIL: material draw attempt missing from DLL"; exit 1; }
+          grep -a -q "$BUILD_STAMP" "$DLL" || { echo "FAIL: build stamp $BUILD_STAMP missing from DLL"; exit 1; }
           echo "--- artifact hashes ---"
           md5sum "$DLL" AgentTouchFix.zip | tee /tmp/hashes.txt
           stat -c '%n %s bytes' "$DLL" | tee -a /tmp/hashes.txt
