@@ -59,7 +59,7 @@ internal static class Program
         string text = string.Join("\n", lines);
         string first = lines.Length > 0 ? lines[0].TrimEnd() : "";
         Console.WriteLine("smoke: probe log = " + logPath + " (" + lines.Length + " lines)");
-        int show = Math.Min(lines.Length, 55);
+        int show = Math.Min(lines.Length, 160);   // whole file: it is small, and the tail carries the summary
         for (int i = 0; i < show; i++) Console.WriteLine("  | " + lines[i]);
         if (lines.Length > show) Console.WriteLine("  | ... " + (lines.Length - show) + " more lines");
 
