@@ -54,9 +54,9 @@ namespace AgentTouchFix
         private static string _mode = IconPath.Plain;
 
         // defs whose icon/material were left in a drawable state - the steady-state fast path.
-        private static readonly HashSet<object> _done = new HashSet<object>(RefEq.Instance);
+        private static readonly HashSet<object> _done = new HashSet<object>(ReferenceEqualityComparer.Instance);
         // material -> Material.name (null is a valid cached answer)
-        private static readonly Dictionary<object, string> _names = new Dictionary<object, string>(RefEq.Instance);
+        private static readonly Dictionary<object, string> _names = new Dictionary<object, string>(ReferenceEqualityComparer.Instance);
         // material type -> its "name" property, so the walk happens once per type
         private static readonly Dictionary<Type, PropertyInfo> _nameProp = new Dictionary<Type, PropertyInfo>();
 
@@ -301,9 +301,9 @@ namespace AgentTouchFix
 
         /// <summary>Reference identity: game types may override Equals/GetHashCode, and these are two
         /// different fields on one object, so identity is the only key that means what we want.</summary>
-        private sealed class RefEq : IEqualityComparer<object>
+        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
         {
-            internal static readonly RefEq Instance = new RefEq();
+            internal static readonly ReferenceEqualityComparer Instance = new ReferenceEqualityComparer();
             bool IEqualityComparer<object>.Equals(object a, object b) { return ReferenceEquals(a, b); }
             int IEqualityComparer<object>.GetHashCode(object o) { return RuntimeHelpers.GetHashCode(o); }
         }
