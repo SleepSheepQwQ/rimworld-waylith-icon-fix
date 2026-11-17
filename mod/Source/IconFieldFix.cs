@@ -32,8 +32,9 @@ namespace AgentTouchFix
     ///
     /// Cost. ThingIcon runs for every visible tile every frame, so the prefix must be free once a def
     /// is healthy:
-    ///   - a def that came out healthy is remembered in <see cref="_done"/> (reference identity) and
-    ///     every later call for it is a single hash lookup plus a return;
+    ///   - an argument that came out drawable (def, or the Thing that owns it) is remembered in
+    ///     <see cref="_done"/> by reference identity, so every later call for it is a single hash
+    ///     lookup plus a return;
     ///   - the "def" property walk (Thing overloads) runs only when the argument is not a ThingDef;
     ///   - material names are memoised (Material.name is a reflected property walk otherwise).
     /// Every step still fails open: an exception leaves the draw completely untouched.
@@ -70,19 +71,21 @@ namespace AgentTouchFix
             try
             {
                 if (__args == null || __args.Length < 2) return;
-                object def = __args[1];
-                if (def == null) return;
+                object arg = __args[1];
+                if (arg == null) return;
 
+                if (_done.Contains(arg)) return;   // steady state: one hash lookup, nothing else
+
+                object def = arg;
                 // Widgets.ThingIcon(Rect, Thing, ...) passes a Thing: repair the ThingDef behind it.
                 // Only worth a reflected property walk when the argument is not already a ThingDef -
                 // the hot overload then never pays for it.
-                if (def.GetType().Name != "ThingDef")
+                if (arg.GetType().Name != "ThingDef")
                 {
-                    object innerDef = Prop(def, "def");
-                    if (innerDef != null && innerDef != def) def = innerDef;
+                    object innerDef = Prop(arg, "def");
+                    if (innerDef != null && innerDef != arg) def = innerDef;
+                    if (def != arg && _done.Contains(def)) { Remember(arg); return; }
                 }
-
-                if (_done.Contains(def)) return;   // steady state: one hash lookup, nothing else
 
                 if (_defType != def.GetType()) Resolve(def.GetType());
                 if (_fIcon == null) { WarnOnce("uiIcon field not found on " + def.GetType().Name); return; }
@@ -106,9 +109,13 @@ namespace AgentTouchFix
                     }
                 }
 
-                // Only a def that came out drawable is remembered; one that could not be repaired is
-                // retried on the next frame (the graphic may load later).
-                if (ok) Remember(def);
+                // Only something that came out drawable is remembered; a def (or Thing) that could not
+                // be repaired is retried on the next frame, the graphic may load later.
+                if (ok)
+                {
+                    Remember(def);
+                    if (!ReferenceEquals(def, arg)) Remember(arg);   // Thing.def never changes
+                }
             }
             catch (Exception e) { WarnOnce(e.Message); }
         }

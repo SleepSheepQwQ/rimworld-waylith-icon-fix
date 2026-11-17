@@ -273,14 +273,16 @@ namespace PrefixBench
             int names = Names().Count;
             Check(names <= 512, "material name cache stays within 512 entries (was " + names + ")");
 
-            // 9. Thing overload: the def behind the Thing is the one repaired/remembered
+            // 9. Thing overload: the def behind the Thing is repaired, and both end up remembered
             ResetMod();
             var th = new Thing();
             th.def = Healthy("ViaThing");
             th.def.uiIconMaterial = new FakeMaterial("CutoutComplexUI_Thing");
             IconFieldFix.Prefix(Args(th));
             Check(th.def.uiIconMaterial == null, "Thing overload repairs the ThingDef behind it");
-            Check(Done().Contains(th.def), "Thing overload remembers the ThingDef, not the Thing");
+            Check(Done().Contains(th.def), "Thing overload remembers the ThingDef");
+            IconFieldFix.Prefix(Args(th));
+            Check(Done().Contains(th), "and the Thing, so its next call is one lookup");
         }
 
         private static void Check(bool ok, string what)
