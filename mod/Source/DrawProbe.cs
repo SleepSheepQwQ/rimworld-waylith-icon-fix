@@ -1243,7 +1243,7 @@ namespace AgentTouchFix
             {
                 int c;
                 buckets.TryGetValue(order[i], out c);
-                if (c == 0 && total == 0) continue;
+                // every bucket is printed even at zero, so the histogram format itself is evidence
                 lines.Add("SUMMARY     h " + Pad(order[i], 8) + " " + Pad(c.ToString(CultureInfo.InvariantCulture), 6)
                           + Bar(c, total) + " " + Pct(c, total));
             }
