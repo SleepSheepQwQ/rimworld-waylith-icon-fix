@@ -26,8 +26,10 @@ jobs:
 
       - name: Package
         run: |
-          DLL=$(find mod/bin/Release -name GlyphFix.dll | head -1)
-          test -n "$DLL" || { echo "GlyphFix.dll not found"; exit 1; }
+          echo "--- produced ---"
+          find mod/bin/Release -name '*.dll' -printf '%p %s bytes\n' | sort
+          DLL=$(find mod/bin/Release -name '*.dll' ! -name '0Harmony.dll' ! -name 'Lib.Harmony.dll' | head -1)
+          test -n "$DLL" || { echo "no mod dll produced"; exit 1; }
           mkdir -p dist/GlyphFix/About dist/GlyphFix/Assemblies
           cp mod/About/About.xml dist/GlyphFix/About/
           cp "$DLL" dist/GlyphFix/Assemblies/
@@ -39,5 +41,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AgentTouchFix
+          name: GlyphFix
           path: GlyphFix.zip
