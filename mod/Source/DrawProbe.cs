@@ -49,7 +49,7 @@ namespace AgentTouchFix
         private static Harmony _h;
         private static List<Type> _types;
 
-        private static int _iconCalls, _gizmoCalls, _frames, _resolveCalls;
+        private static int _iconCalls, _gizmoCalls, _frames, _resolveCalls, _errs;
 
         private static readonly Dictionary<string, int> _hookHits = new Dictionary<string, int>();
         private static readonly Dictionary<string, int> _detail = new Dictionary<string, int>();
@@ -181,6 +181,17 @@ namespace AgentTouchFix
         }
 
         /// <summary>Header line: written verbatim, so the first line of the file is exactly "BUILD ...".</summary>
+        /// <summary>Log a message only the first time this key is seen (keeps per-frame paths bounded).</summary>
+        private static void NoteOnce(string key, string msg)
+        {
+            bool first = false;
+            lock (_cnt)
+            {
+                if (!_misses.Contains(key)) { _misses.Add(key); first = true; }
+            }
+            if (first) Note(msg);
+        }
+
         private static void RawHeadLocked(string s)
         {
             _w.WriteLine(s);
@@ -264,7 +275,7 @@ namespace AgentTouchFix
             // No timestamp prefix on this line: it must start with "BUILD " so it can be grepped for.
             RawHeadLocked("BUILD " + BuildTag + " log=" + _path
                           + " runtime=" + DateTime.Now.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture));
-            RawLocked("PATH abs=" + _path + " preexisting-bytes=" + _bytes + " pid=" + Pid()
+            RawLocked("PATH abs=" + _path + " bytes-after-header=" + _bytes + " pid=" + Pid()
                       + " proc=" + ProcName() + " exe=" + ExePath() + " dll=" + AsmPath());
             RawLocked("PATH read-with=run-as " + PkgGuess() + " cat " + _path);
             Type gfp = FindTypeBySimpleName("GenFilePaths");
@@ -591,7 +602,7 @@ namespace AgentTouchFix
             }
 
             // one-shot map of everything that could be involved in drawing an icon
-            string[] keys = { "Gizmo", "Icon", "Texture", "Mat", "Shader", "Gui", "Command", "Graphic", "Draw" };
+            string[] keys = { "Gizmo", "Icon", "Texture", "Shader", "Gui", "Command", "Graphic", "Material", "DrawProbe" };
             List<string> hits = new List<string>();
             List<Type> ts = Types();
             for (int i = 0; i < ts.Count; i++)
@@ -858,6 +869,9 @@ namespace AgentTouchFix
             PatchResolve(report);
 
             Note("HOOKS " + string.Join(" | ", report.ToArray()));
+            // Always emit one summary, even with zero hits: a histogram section that is present and
+            // says "0" is evidence; a missing section is a silent failure.
+            DumpSummary("init");
         }
 
         private static void PatchThingIcon(List<string> report)
@@ -1055,7 +1069,9 @@ namespace AgentTouchFix
             }
             catch (Exception e)
             {
-                Note("ICON prefix threw, full stack:\n" + e.ToString());
+                int n = Interlocked.Increment(ref _errs);
+                if (n <= 3) Note("ICON prefix threw #" + n + ", full stack:\n" + e.ToString());
+                else NoteOnce("iconerr", "ICON prefix keeps throwing; the first 3 stacks are above");
             }
             return true;   // never skip the original
         }
@@ -1071,7 +1087,9 @@ namespace AgentTouchFix
             }
             catch (Exception e)
             {
-                Note("GIZMO postfix threw, full stack:\n" + e.ToString());
+                int n = Interlocked.Increment(ref _errs);
+                if (n <= 3) Note("GIZMO postfix threw #" + n + ", full stack:\n" + e.ToString());
+                else NoteOnce("gizmoerr", "GIZMO postfix keeps throwing; the first 3 stacks are above");
             }
         }
 
@@ -1283,11 +1301,44 @@ namespace AgentTouchFix
 
         // ---------------------------------------------------------------- per-call evidence
 
+        /// <summary>Look for an icon on an object without assuming any single known name; every probe is
+        /// null-checked and the first hit (or the reason there is none) is reported.</summary>
+        private static string HuntIcon(object o)
+        {
+            if (o == null) return "no-instance";
+            string[] names = { "icon", "Icon", "tex", "Tex", "graphic", "Graphic" };
+            for (int i = 0; i < names.Length; i++)
+            {
+                object v = Get(o, names[i]);
+                if (v == null) continue;
+                string tn = v.GetType().Name;
+                if (tn.IndexOf("Texture", StringComparison.OrdinalIgnoreCase) >= 0) return names[i] + "=" + Name(v);
+                return names[i] + ":" + tn + "(not a texture)";
+            }
+            object f = FindTextureIn(o);
+            if (f != null) return "field-scan=" + Name(f);
+            return "none(no texture-typed member holds a value)";
+        }
+
+        private static string DescribeArgs(object[] args)
+        {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < args.Length && i < 4; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append(Describe(args[i]));
+            }
+            if (args.Length > 4) sb.Append(", ...");
+            string s = sb.ToString();
+            return s.Length > 240 ? s.Substring(0, 240) : s;
+        }
+
         private static void RecordArgs(string hook, object[] args, object instance)
         {
             if (args == null || args.Length == 0)
             {
-                Note("ARG " + hook + ": no arguments");
+                NoteOnce("argn:" + hook, "ARG " + hook + ": no arguments; instance=" + TypeName(instance)
+                                         + " icon=" + HuntIcon(instance));
                 return;
             }
 
@@ -1303,7 +1354,9 @@ namespace AgentTouchFix
             }
             if (rect == null)
             {
-                Note("ARG " + hook + ": no Rect-like argument in " + args.Length + " args");
+                NoteOnce("argr:" + hook, "ARG " + hook + ": no Rect-like argument in " + args.Length
+                                         + " args; instance=" + TypeName(instance)
+                                         + " args=" + DescribeArgs(args) + " icon=" + HuntIcon(instance));
                 return;
             }
             RecordRect(w, h);
@@ -1370,7 +1423,8 @@ namespace AgentTouchFix
                  + " filterMode=" + V(tex, "filterMode")
                  + " wrapMode=" + V(tex, "wrapMode")
                  + " anisoLevel=" + V(tex, "anisoLevel")
-                 + " guiColor=" + guiColor);
+                 + " guiColor=" + guiColor
+                 + " instanceIcon=" + HuntIcon(instance));
 
             RecordName(_things, Name(subject));
             RecordName(_textures, Name(tex) + (tex == null ? "" : " [" + V(tex, "width") + "x" + V(tex, "height") + "]"));

@@ -85,6 +85,9 @@ internal static class Program
         Check(text.Contains("DRAWAPI chosen material-draw="), "material draw resolution logged");
 
         Check(text.Contains("HOOKS "), "hook installation report written");
+        Check(text.Contains("SUMMARY why=init"), "summary+histogram emitted at init (not only on activity)");
+        Check(text.Contains("rect-height histogram"), "rect size histogram section present");
+        Check(text.Contains("PATH candidate[0]"), "log path candidates reported");
         Check(text.Contains("ENV typemap"), "type map dumped");
         Check(text.Contains("ENV assemblies="), "assembly inventory dumped");
 
