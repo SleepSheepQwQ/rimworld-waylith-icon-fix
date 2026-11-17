@@ -34,7 +34,6 @@ jobs:
           cp mod/About/About.xml dist/GlyphFix/About/
           cp "$DLL" dist/GlyphFix/Assemblies/
           (cd dist/GlyphFix && zip -qr ../../GlyphFix.zip .)
-          cd ..
           echo "--- artifact ---"
           md5sum "$DLL" GlyphFix.zip
           stat -c '%n %s bytes' "$DLL" GlyphFix.zip
