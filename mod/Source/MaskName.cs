@@ -24,15 +24,27 @@ namespace AgentTouchFix
     ///
     /// So: strip every trailing texture extension, then apply vanilla's suffix test.
     ///
-    /// Not on the runtime path: the shipped repair is <see cref="ContentFallbackFix"/>, which makes the
-    /// mask lookups *succeed* (index keys keep the inner extension, so a miss-only retry with
-    /// ".png/.psd/.jpg/.dds" appended finds them) instead of dropping what slipped through. The
-    /// predicate stays here, with tests, as the precise statement of the port's mask naming rule.
+    /// Two repairs use this rule. <see cref="ContentFallbackFix"/> makes the mask lookups *succeed*
+    /// (index keys keep the inner extension, so a miss-only retry with ".png/.psd/.jpg/.dds"
+    /// appended finds them). <see cref="CollectionVariants"/> drops what slipped into the variant
+    /// list, which is the other half of the same bug: Graphic_Random indexes subGraphics by
+    /// thingIDNumber % count, so a surviving mask is drawn for roughly half of the instances.
+    ///
+    /// Animals name their masks per direction - "Lynx_northm", "_eastm", "_southm", "_westm" - which
+    /// is a different suffix family (Graphic_Multi.cs:210 appends "_north" + "m"), so both forms are
+    /// recognised here and both peel the inner extension first.
     /// </summary>
     internal static class MaskName
     {
         /// <summary>Graphic_Single.MaskSuffix on this game version.</summary>
         internal const string Suffix = "_m";
+
+        /// <summary>
+        /// Directional mask suffixes: Graphic_Multi asks for text + "_north" + "m" per rotation, so
+        /// the file is "&lt;base&gt;_northm". Lowercase, like the textures themselves and like the
+        /// game's own name.Contains("_north") test.
+        /// </summary>
+        private static readonly string[] DirectionSuffixes = { "_northm", "_eastm", "_southm", "_westm" };
 
         /// <summary>
         /// Extensions a texture ships under. A port-side name keeps the inner one, so peeling has to
@@ -79,6 +91,43 @@ namespace AgentTouchFix
                     break;
                 }
             }
+            return s;
+        }
+
+        /// <summary>
+        /// True when <paramref name="name"/> is a per-direction mask ("Lynx_northm", "Lynx_eastm.psd",
+        /// "Lynx_westm.png.dds"). The extension is peeled first, so the port's inner extension cannot
+        /// hide the suffix - the same failure mode that lets "_m" masks through.
+        /// </summary>
+        internal static bool IsDirectionMask(string name)
+        {
+            string s = Strip(name);
+            if (s == null) return false;
+            foreach (string d in DirectionSuffixes)
+            {
+                if (s.Length <= d.Length) continue;                             // "_northm" alone names nothing
+                if (s.EndsWith(d, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Both mask families: Graphic_Single's "X_m" and Graphic_Multi's per-direction ones.</summary>
+        internal static bool IsVariantMask(string name)
+        {
+            return IsMask(name) || IsDirectionMask(name);
+        }
+
+        /// <summary>
+        /// The pairing key of a variant: its name with every extension peeled and its mask suffix
+        /// removed. "X_m.png" and "X.png" both key as "X"; "Lynx_northm.psd" and "Lynx_north.psd"
+        /// both key as "Lynx_north". Null for blank input, which no variant list may contain.
+        /// </summary>
+        internal static string VariantKey(string name)
+        {
+            string s = Strip(name);
+            if (s == null) return null;
+            if (IsMask(s)) return s.Substring(0, s.Length - Suffix.Length);
+            if (IsDirectionMask(s)) return s.Substring(0, s.Length - 1);   // "_northm" -> "_north"
             return s;
         }
     }

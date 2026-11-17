@@ -138,6 +138,9 @@ DebugActionsMisc.HotReloadDefs → PlayDataLoader.HotReloadDefs（同上）
 | 字段解析失败 | `uiIcon field not found on <type>` | 移植版字段改名，需更新反射目标 |
 | 缓存被清 | `cache cleared (play data reload \| sentinel changed)` | 正常，每次重载出现一次 |
 | 材质被摘 | `dropped icon material '<name>' on <def>` | 正常，最多 5 条 |
+| 变体列表形状不明（非"主图+掩码成对"） | `collection: variant shape unexpected, left untouched (n=<count>)` | 正常；无掩码的集合也会出现，最多 5 条 |
+| 掩码变体被摘除 | `collection: dropped N mask variant(s) at '<folder>', B -> A` | 正常，每个受影响集合一次 |
+| 集合类/反射目标缺失 | `collection: ... skipped` | 移植版改名时出现；其余修复不受影响 |
 
 日志位置：`<游戏目录>/agenttouchfix.log`（设备上为 `files/game/`）。
 

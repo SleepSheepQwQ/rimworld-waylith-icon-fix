@@ -63,6 +63,24 @@ misses included. One line per recovered texture: `content: extension fallback '<
 other content path on this port already resolves against, so "fixing" it globally would move the
 breakage instead of removing it.
 
+The list half needs a repair of its own, because the fallback makes the mask *load* instead of
+disappearing: `Graphic_Random` draws `subGraphics[thingIDNumber % count]`, so a mask that stayed in
+the array is drawn for roughly half of the items. `CollectionFix` postfixes
+`Verse.Graphic_Collection.Init` and hands the variant names to `CollectionVariants.Filter`, which
+drops a name only when the list is fully explained by "texture plus its own mask":
+
+* `before == after * 2`, and every pairing prefix holds exactly two names — one texture, one mask
+  (`X` + `X_m`, or a rotation pair `Lynx_north` + `Lynx_northm` / `_eastm` / `_southm` / `_westm`);
+* the mask test peels every texture extension first, so `UniqueRevolverA_m.png` and
+  `Lynx_northm.psd` are recognised exactly like the bare names.
+
+Anything else — a collection with no masks, a lone mask, two textures under one prefix, a
+`Graphic_Multi`-only collection — comes back as the very same list and is reported once:
+`collection: variant shape unexpected, left untouched (n=<count>)` (capped at five lines). A drop is
+logged as `collection: dropped N mask variant(s) at '<folder>', B -> A`. If
+`Verse.Graphic_Collection` cannot be found the patch warns and skips; the rest of the mod is
+unaffected.
+
 ## Install
 
 Drop `GlyphFix` into `Mods/`, enable it, restart. Nothing else to configure.

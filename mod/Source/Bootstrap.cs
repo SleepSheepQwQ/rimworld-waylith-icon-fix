@@ -32,10 +32,12 @@ namespace AgentTouchFix
                 IconFieldFix.Install();
                 UvFix.Init();
                 ContentFallbackFix.Install();
+                CollectionFix.Install();
 
                 Refl.Info("BUILD 2.5.0 grayscalefix"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
-                          + " + miss-only texture extension fallback)");
+                          + " + miss-only texture extension fallback"
+                          + " + collection variant mask filter)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
