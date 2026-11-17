@@ -12,8 +12,17 @@
     <Optimize>true</Optimize>
     <!-- the SDK would otherwise append +<git sha>, making builds irreproducible -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <Version>2.4.0</Version>
+    <Version>2.5.0</Version>
+    <!-- Unique build marker, baked into the assembly as AssemblyMetadata("BuildStamp").
+         CI passes -p:BuildStamp=<utc yyyyMMddHHmmssZ>; a local build gets the current time.
+         DrawProbe writes "BUILD <version>-<stamp>" as the first line of drawprobe.log, which is how a
+         log file is tied back to exactly one artifact. -->
+    <BuildStamp Condition="'$(BuildStamp)' == ''">$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))Z</BuildStamp>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildStamp" Value="$(BuildStamp)" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- Harmony (0Harmony): the game loads its own copy, this is a compile-time reference only -->

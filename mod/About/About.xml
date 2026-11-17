@@ -3,7 +3,7 @@
   <name>AgentTouchFix</name>
   <author>sleepsheep</author>
   <packageId>sleepsheep.waylith.agenttouchfix</packageId>
-  <modVersion>2.4.0</modVersion>
+  <modVersion>2.5.0</modVersion>
   <supportedVersions>
     <li>1.7</li>
   </supportedVersions>
@@ -12,5 +12,5 @@
 
   Icons: the port's Material.mainTexture returns null, so BuildableDef.uiIcon can stay empty, and the CutoutComplexUI icon material can silently discard a whole tile (degenerate _MainTex_ST or a null _MainTex). The mod repairs uiIcon / drops that icon material at draw time, sending the icon through the same plain texture path the icons that already render use.
 
-  Logs to files/game/agenttouchfix.log. Switches: files/game/agenttouchfix.iconpath = material (keep the icon material).</description>
+  Diagnostics: build logs go to files/game/agenttouchfix.log; the draw probe writes drawprobe.log next to the save data (its first line is "BUILD &lt;version&gt;-&lt;build stamp&gt; log=&lt;absolute path&gt;" plus the exact "run-as &lt;pkg&gt; cat" command). Switches: files/game/agenttouchfix.iconpath = material (keep the icon material).</description>
 </ModMetaData>

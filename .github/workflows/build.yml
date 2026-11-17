@@ -18,8 +18,12 @@ jobs:
       - name: Unit tests (shader math + icon routing)
         run: dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
 
-      - name: Build the mod
-        run: dotnet build mod/AgentTouchFix.csproj -c Release -v minimal
+      - name: Build the mod (with a unique build stamp)
+        run: |
+          STAMP=$(date -u +%Y%m%d%H%M%SZ)
+          echo "build stamp: $STAMP"
+          echo "BUILD_STAMP=$STAMP" >> "$GITHUB_ENV"
+          dotnet build mod/AgentTouchFix.csproj -c Release -v minimal -p:BuildStamp="$STAMP"
 
       - name: Package
         run: |
@@ -29,7 +33,21 @@ jobs:
           cp mod/About/About.xml dist/AgentTouchFix/
           cp "$DLL" dist/AgentTouchFix/Assemblies/
           cd dist && zip -qr ../AgentTouchFix.zip AgentTouchFix
-          cd .. && ls -l AgentTouchFix.zip && stat -c '%n %s bytes' dist/AgentTouchFix/Assemblies/AgentTouchFix.dll
+          cd ..
+          echo "--- probe wiring checks (the DLL must carry the probe, not just the repo) ---"
+          grep -a -q "drawprobe.log" "$DLL"     || { echo "FAIL: drawprobe.log name missing from DLL"; exit 1; }
+          grep -a -q "SHADERDB" "$DLL"          || { echo "FAIL: ShaderDatabase dump missing from DLL"; exit 1; }
+          grep -a -q "DrawTextureWithTexCoords" "$DLL" || { echo "FAIL: draw attempts missing from DLL"; exit 1; }
+          grep -a -q "$BUILD_STAMP" "$DLL"      || { echo "FAIL: build stamp $BUILD_STAMP missing from DLL"; exit 1; }
+          echo "--- artifact hashes ---"
+          md5sum "$DLL" AgentTouchFix.zip | tee /tmp/hashes.txt
+          stat -c '%n %s bytes' "$DLL" | tee -a /tmp/hashes.txt
+          {
+            echo "### build $BUILD_STAMP"
+            echo '```'
+            cat /tmp/hashes.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
