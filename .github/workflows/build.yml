@@ -28,10 +28,10 @@ jobs:
         run: |
           DLL=$(find mod/bin/Release -name GlyphFix.dll | head -1)
           test -n "$DLL" || { echo "GlyphFix.dll not found"; exit 1; }
-          mkdir -p dist/GlyphFix/Assemblies
-          cp mod/About/About.xml dist/GlyphFix/
+          mkdir -p dist/GlyphFix/About dist/GlyphFix/Assemblies
+          cp mod/About/About.xml dist/GlyphFix/About/
           cp "$DLL" dist/GlyphFix/Assemblies/
-          cd dist && zip -qr ../GlyphFix.zip AgentTouchFix
+          (cd dist/GlyphFix && zip -qr ../../GlyphFix.zip .)
           cd ..
           echo "--- artifact ---"
           md5sum "$DLL" GlyphFix.zip
