@@ -77,6 +77,36 @@ return true;   // 原方法继续执行：材质、裁剪、GUI.matrix 全归引
 
 `Widgets.cs:504` 的 `if (grayscale)` 不成立后沿用已解析的正常 UI 材质；禁用态由调用方 `GUI.color`（去饱和 + alpha 0.6）表达，因此"变暗"语义保留，"消失"缺陷消除。
 
+### 2.4 缺陷 C 的处理：实例贴图不可用时的 def 级回退
+
+`Widgets.ThingIcon(Rect, Thing, ...)` 取的就是 `GetIconFor(Thing, ...)` 的返回值，拿到空值直接 `return`：
+
+```
+Widgets.cs:489   iconFor = GetIconFor(thing, size, rot, stackOfOne, out material);
+Widgets.cs:492   if (iconFor == null || iconFor == BaseContent.BadTex) return;   // 整格不画
+```
+
+而 `GetIconFor(Thing, ...)` 是**实例级**的：`thing.Graphic.ExtractInnerGraphicFor(thing).MatAt(rot).mainTexture`
+（`Widgets.cs:739-741`），没有 def 级兜底。带改装/染色/克隆 `Graphic` 的物品（模组换 stuff、磨损重贴图）
+可以交出贴图为空的材质，而同一个 def 的 `uiIcon`、`graphic` 却是好的。
+
+处理方式是一个 postfix（两个重载各一个，按参数类型精确识别 `Thing` / `ThingDef` 作为第 0 参，
+并要求存在 `out Material material`；4 参数的转发重载不挂）：
+
+```
+Postfix(GetIconFor) 仅在 __result 为 null 或 BadTex 时继续
+  ├─ ① def.uiIcon 可用（非空且非 BadTex）        → 采用，material = null，color = white
+  ├─ ② def.graphic.MatAt(def.defaultPlacingRot).mainTexture 可用 → 同上
+  └─ ③ 都不可用 → 原值原样返回
+```
+
+`material = null` 是关键：让 `Widgets` 走无材质直绘路径，而不是拿着刚刚失效的材质再画一次。
+out 参数通过**运行期闭合的泛型 postfix**（`PostfixThing<TTex, TMat, TCol>`）以 `ref` 方式拿到，
+因此本模组仍然不携带任何 `UnityEngine` / `UnityStubs` 引用。
+
+代价：正常路径只有一次 null 判断 + 一次引用比较，无分配；反射（`MatAt`、`mainTexture`）只在命中坏值时执行。
+开关：`files/game/agenttouchfix.iconfallback` 内容为 `off` 时整个钩子不安装。
+
 ---
 
 ## 3. 数据结构与并发
@@ -141,6 +171,9 @@ DebugActionsMisc.HotReloadDefs → PlayDataLoader.HotReloadDefs（同上）
 | 变体列表形状不明（非"主图+掩码成对"） | `collection: variant shape unexpected, left untouched (n=<count>)` | 正常；无掩码的集合也会出现，最多 5 条 |
 | 掩码变体被摘除 | `collection: dropped N mask variant(s) at '<folder>', B -> A` | 正常，每个受影响集合一次 |
 | 集合类/反射目标缺失 | `collection: ... skipped` | 移植版改名时出现；其余修复不受影响 |
+| 图标回退未安装 | `iconfallback: patched N GetIconFor overload(s)`（N 应为 2） | N<2 时检查 `Widgets.GetIconFor` 是否改名/改签名 |
+| 实例贴图不可用、已用 def 级贴图顶上 | `icon fallback: <defName> via uiIcon\|graphic` | 正常，最多 5 条 |
+| 图标回退内部异常 | `iconfallback: <msg>`（每个进程一次） | 只 Warn，不影响原绘制 |
 
 日志位置：`<游戏目录>/agenttouchfix.log`（设备上为 `files/game/`）。
 

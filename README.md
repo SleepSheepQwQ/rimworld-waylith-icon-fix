@@ -2,7 +2,8 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Русский](README.ru.md)
 
-Two rendering bugs in the Waylith-based Android port, two hooks, no engine changes.
+Two rendering bugs and one instance-level icon gap in the Waylith-based Android port, small hooks,
+no engine changes.
 
 > Formerly `AgentTouchFix`. Same code, better name.
 
@@ -21,11 +22,22 @@ default program and the icon draws as nothing — a flat grey slab. GlyphFix for
 false`; the disabled look still comes from the caller's `GUI.color` tint, so the icon dims instead
 of disappearing and brightens once the pawn is drafted.
 
+**3. Items whose own graphic has no texture.** `Widgets.ThingIcon(Rect, Thing, ...)` draws whatever
+`Widgets.GetIconFor(Thing, ...)` returns and gives up when that is null or `BaseContent.BadTex`
+(`Widgets.cs:489-495`). That overload is instance level — `thing.Graphic.ExtractInnerGraphicFor(thing)
+.MatAt(rot).mainTexture` — so a Thing carrying a cloned or reskinned graphic (mod stuff/colour
+variants, worn art) can hand back a texture-less material while the same def's `uiIcon` and `graphic`
+are fine. GlyphFix postfixes both `GetIconFor` overloads and, **only when the result is unusable**,
+adopts `def.uiIcon`, else `def.graphic.MatAt(def.defaultPlacingRot).mainTexture`, and nulls the
+`out Material` so the tile is drawn without the material that just failed. Turn it off with
+`files/game/agenttouchfix.iconfallback` containing `off`.
+
 ## Cost
 
 | | |
 |---|---|
 | Steady state | **16.7 ns** per patched call (a bare `HashSet.Contains` costs 13.67 ns on the same runner) |
+| Icon fallback | one null test + one reference test per `GetIconFor` call; reflection only when the result is unusable |
 | Total | **< 0.1 % of one core** at ~30 k calls/s |
 | Load time | unchanged — `ThingIcon` is never called before the main menu |
 | Memory | ≤ 4096 cached defs + ≤ 512 material names, ~0.3 MB, cleared on play-data reload |
