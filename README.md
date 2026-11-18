@@ -21,6 +21,15 @@ default program and the icon draws as nothing — a flat grey slab. GlyphFix for
 false`; the disabled look still comes from the caller's `GUI.color` tint, so the icon dims instead
 of disappearing and brightens once the pawn is drafted.
 
+**3. Noisy textures on mod icons.** `ImGuiVulkanRenderer.SamplerFor` builds the answer from
+`ImportDefaults.IsOfficialUiTexture`, which is a path test **and** an "is this inside a content root
+the game owns" test. Every mod texture fails the second half and gets `_texSamplerMipped`
+(`MaxLod = 1000`), so a single-level icon is sampled across mip levels that were never written.
+GlyphFix rewrites the one field load that picks the mipped sampler, so every texture gets
+`_texSampler` (`MaxLod = 0`); the official-UI branch already returned exactly that, so the only
+behaviour that changes is the broken one. Trade-off — full mip chains lose their prefiltering —
+is written out in [docs/SAMPLER-MIPS.md](docs/SAMPLER-MIPS.md).
+
 ## Cost
 
 | | |

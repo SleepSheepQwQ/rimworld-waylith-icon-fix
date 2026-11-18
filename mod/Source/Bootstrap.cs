@@ -33,11 +33,13 @@ namespace AgentTouchFix
                 UvFix.Init();
                 ContentFallbackFix.Install();
                 CollectionFix.Install();
+                SamplerFix.Install();
 
-                Refl.Info("BUILD 2.5.0 grayscalefix"
+                Refl.Info("BUILD 2.6.0 samplermipfix"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
-                          + " + collection variant mask filter)");
+                          + " + collection variant mask filter"
+                          + " + non-UI textures forced to the mip-0 sampler)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
