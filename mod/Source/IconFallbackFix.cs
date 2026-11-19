@@ -302,11 +302,40 @@ namespace AgentTouchFix
             return null;
         }
 
-        private static ParameterInfo Param(ParameterInfo[] ps, string name)
+        /// <summary>
+        /// The by-ref parameter whose element type is <paramref name="typeName"/>. Matched by element
+        /// type name, because that is the fact the overloads are known by ("an out Material") and it
+        /// survives the element type being loaded from a different assembly than Refl.T finds. The
+        /// game's own parameter name is only a tie-breaker. Comparing the *parameter* type against
+        /// UnityEngine.Color - as 2.6.1 did - can never match an `out Color`: it is Color&amp;.
+        /// </summary>
+        private static ParameterInfo ByRefParam(ParameterInfo[] ps, string typeName, string preferredName)
         {
+            ParameterInfo loose = null;
             for (int i = 0; i < ps.Length; i++)
-                if (ps[i].Name == name) return ps[i];
-            return null;
+            {
+                Type pt = ps[i].ParameterType;
+                if (!pt.IsByRef) continue;
+                Type el = null;
+                try { el = pt.GetElementType(); } catch { }
+                if (el == null || el.Name != typeName) continue;
+                if (ps[i].Name == preferredName) return ps[i];
+                if (loose == null) loose = ps[i];
+            }
+            return loose;
+        }
+
+        /// <summary>"GetIconFor(ThingDef, Material&amp;, ...)" - the log names what was patched.</summary>
+        private static string Signature(MethodInfo m)
+        {
+            ParameterInfo[] ps = m.GetParameters();
+            string s = m.Name + "(";
+            for (int i = 0; i < ps.Length; i++)
+            {
+                if (i != 0) s += ", ";
+                s += ps[i].ParameterType.Name;
+            }
+            return s + ")";
         }
 
         internal static void Install()
@@ -326,51 +355,54 @@ namespace AgentTouchFix
                 MethodInfo defPatch = typeof(IconFallbackFix).GetMethod("PostfixDef",
                     BindingFlags.Static | BindingFlags.NonPublic);
                 var harmony = new Harmony(HarmonyId);
-                int patched = 0;
+                int patched = 0, seen = 0;
 
                 foreach (MethodInfo m in widgets.GetMethods(BindingFlags.Public | BindingFlags.Static))
                 {
                     if (m.Name != "GetIconFor") continue;
+                    seen++;
 
                     ParameterInfo[] ps = m.GetParameters();
                     if (ps.Length == 0) continue;
 
-                    // Type-exact target test: only get the Thing / ThingDef entry points, and only the
-                    // overloads that actually produce the icon material (the 4-arg ThingDef overload
-                    // just forwards to the 5-arg one and must not be patched twice).
-                    bool onThing = _thingType != null && ps[0].ParameterType == _thingType;
-                    bool onDef = ps[0].ParameterType == _thingDefType;
-                    if (!onThing && !onDef) continue;
+                    // Shape, not name and not parameter position: whose icon it is comes from the
+                    // first parameter, and the by-ref Material is what the postfix replaces.
+                    // 2.6.1 required a colour parameter to be *exactly* UnityEngine.Color, which can
+                    // never be true for an `out Color` (its type is Color&) - so the Thing overload
+                    // was skipped and only one of the two was ever patched.
+                    bool firstIsThing = _thingType != null && ps[0].ParameterType == _thingType;
+                    bool firstIsDef = _thingDefType != null && ps[0].ParameterType == _thingDefType;
 
-                    ParameterInfo mat = Param(ps, "material");
-                    if (mat == null || !mat.ParameterType.IsByRef) continue;
+                    ParameterInfo mat = ByRefParam(ps, "Material", "material");
+                    ParameterInfo col = ByRefParam(ps, "Color", "color");
+
+                    int kind = MemberChoice.GetIconFor(firstIsThing, firstIsDef, mat != null, col != null);
+                    if (kind == MemberChoice.Reject)
+                    {
+                        Refl.Info("iconfallback: skipped " + Signature(m) + " (not an icon-material entry point)");
+                        continue;
+                    }
 
                     try
                     {
-                        MethodInfo closed;
-                        if (onThing)
-                        {
-                            ParameterInfo col = Param(ps, "color");
-                            if (col == null) continue;
-                            if (_colorType != null && col.ParameterType != _colorType) continue;
-                            closed = thingPatch.MakeGenericMethod(m.ReturnType, mat.ParameterType.GetElementType(),
-                                                                  col.ParameterType.GetElementType());
-                        }
-                        else
-                        {
-                            closed = defPatch.MakeGenericMethod(m.ReturnType, mat.ParameterType.GetElementType());
-                        }
+                        MethodInfo closed = kind == MemberChoice.ThingOverload
+                            ? thingPatch.MakeGenericMethod(m.ReturnType, mat.ParameterType.GetElementType(),
+                                                           col.ParameterType.GetElementType())
+                            : defPatch.MakeGenericMethod(m.ReturnType, mat.ParameterType.GetElementType());
 
                         harmony.Patch(m, postfix: new HarmonyMethod(closed));
                         patched++;
+                        Refl.Info("iconfallback: patched " + Signature(m));
                     }
                     catch (Exception e)
                     {
-                        Refl.Warn("iconfallback: " + m.Name + "/" + ps.Length + " not patched: " + e.Message);
+                        Refl.Warn("iconfallback: " + Signature(m) + " not patched: " + e.Message);
                     }
                 }
 
-                Refl.Info("iconfallback: patched " + patched + " GetIconFor overload(s)");
+                Refl.Info("iconfallback: patched " + patched + " GetIconFor overload(s)"
+                          + (patched == 2 ? "" : " (expected 2 of " + seen + ")"));
+                if (patched != 2) Refl.Warn("iconfallback: expected 2 GetIconFor overloads, patched " + patched);
             }
             catch (Exception e) { WarnOnce("install: " + e.Message); }
         }

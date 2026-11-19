@@ -21,6 +21,8 @@
   <ItemGroup>
     <Compile Include="../../mod/Source/IconFieldFix.cs" Link="mod/IconFieldFix.cs" />
     <Compile Include="../../mod/Source/IconPathDecision.cs" Link="mod/IconPathDecision.cs" />
+    <Compile Include="../../mod/Source/Member.cs" Link="mod/Member.cs" />
+    <Compile Include="../../mod/Source/MemberChoice.cs" Link="mod/MemberChoice.cs" />
     <Compile Include="../../mod/Source/Refl.cs" Link="mod/Refl.cs" />
   </ItemGroup>
 

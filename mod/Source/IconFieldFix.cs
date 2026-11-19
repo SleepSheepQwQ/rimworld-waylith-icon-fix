@@ -47,7 +47,10 @@ namespace AgentTouchFix
         private const int NameCap = 512;
 
         private static int _filled, _cleared, _warned;
-        private static FieldInfo _fIcon, _fMat, _fGraphic, _fGraphicData, _fTexPath, _fPath, _fDefName;
+        // Field or property, instance or static - resolved once per def type by Member.Resolve, which
+        // is what 2.6.1 got wrong: it asked for an instance field of *this* type only and treated a
+        // null answer as "the game has no such member". docs/REFLECTION-FACTS.md has the metadata.
+        private static Member _mIcon, _mMat, _mGraphic, _mGraphicData, _mTexPath, _mPath, _mDefName;
         private static Type _defType, _badTexType;
         private static object _badTex;
         private static MethodInfo _finder;
@@ -100,23 +103,25 @@ namespace AgentTouchFix
                 }
 
                 if (_defType != def.GetType()) Resolve(def.GetType());
-                if (_fIcon == null) { WarnOnce("uiIcon field not found on " + def.GetType().Name); return; }
+                if (_mIcon == null) return;   // Resolve logged why; the draw stays untouched
 
-                object icon = _fIcon.GetValue(def);
+                object icon = _mIcon.Get(def);
                 bool ok = icon != null && !IsBad(icon);
                 if (!ok) ok = Fill(def);
 
-                if (_fMat != null)
+                if (_mMat != null)
                 {
-                    object mat = _fMat.GetValue(def);
+                    object mat = _mMat.Get(def);
                     if (mat != null)
                     {
                         string name = NameOf(mat);
                         if (IconPath.UsePlain(name, _mode))
                         {
-                            _fMat.SetValue(def, null);
-                            int c = Interlocked.Increment(ref _cleared);
-                            if (c <= 5) Refl.Info("drawfix: dropped icon material '" + name + "' on " + DefName(def));
+                            if (_mMat.Set(def, null))
+                            {
+                                int c = Interlocked.Increment(ref _cleared);
+                                if (c <= 5) Refl.Info("drawfix: dropped icon material '" + name + "' on " + DefName(def));
+                            }
                         }
                     }
                 }
@@ -138,16 +143,16 @@ namespace AgentTouchFix
             _done.Add(def);
         }
 
-        /// <summary>Load the graphic's texture into uiIcon. True when the field is drawable afterwards.</summary>
+        /// <summary>Load the graphic's texture into uiIcon. True when the value is drawable afterwards.</summary>
         private static bool Fill(object def)
         {
-            object graphic = _fGraphic == null ? null : _fGraphic.GetValue(def);
+            object graphic = _mGraphic == null ? null : _mGraphic.Get(def);
             string path = null;
-            if (graphic != null && _fPath != null) path = _fPath.GetValue(graphic) as string;
-            if (string.IsNullOrEmpty(path) && _fGraphicData != null && _fTexPath != null)
+            if (graphic != null && _mPath != null) path = _mPath.Get(graphic) as string;
+            if (string.IsNullOrEmpty(path) && _mGraphicData != null && _mTexPath != null)
             {
-                object gd = _fGraphicData.GetValue(def);
-                if (gd != null) path = _fTexPath.GetValue(gd) as string;
+                object gd = _mGraphicData.Get(def);
+                if (gd != null) path = _mTexPath.Get(gd) as string;
             }
             if (string.IsNullOrEmpty(path)) return false;
 
@@ -155,7 +160,11 @@ namespace AgentTouchFix
             if (tex == null) tex = Load(path + "_south");
             if (tex == null) return false;
 
-            _fIcon.SetValue(def, tex);
+            if (!_mIcon.Set(def, tex))
+            {
+                WarnOnce("uiIcon is not writable (" + _mIcon.Kind + " without a setter) on " + _defType.Name);
+                return false;
+            }
             int n = Interlocked.Increment(ref _filled);
             if (n <= 5) Refl.Info("drawfix: uiIcon <- " + path + " on " + DefName(def));
             else if (n % 100 == 0) Refl.Info("drawfix: filled " + n + " icons at draw time");
@@ -176,7 +185,7 @@ namespace AgentTouchFix
 
         private static string DefName(object def)
         {
-            return _fDefName == null ? "?" : (_fDefName.GetValue(def) as string) ?? "?";
+            return _mDefName == null ? "?" : (_mDefName.Get(def) as string) ?? "?";
         }
 
         /// <summary>Material.name, memoised per material object: the uncached form walks GetProperties().</summary>
@@ -211,18 +220,35 @@ namespace AgentTouchFix
         private static void Resolve(Type defType)
         {
             _defType = defType;
-            _fIcon = Field(defType, "uiIcon");
-            _fMat = Field(defType, "uiIconMaterial");
-            _fGraphic = Field(defType, "graphic");
-            _fGraphicData = Field(defType, "graphicData");
-            _fDefName = Field(defType, "defName");
+
+            // Field first: on this port every one of these is a public instance field (declared on
+            // Verse.BuildableDef / Verse.Def, i.e. on a base type of the runtime type). A property is
+            // accepted when a future build moves one, and a writable member is required where the fix
+            // writes (uiIcon, uiIconMaterial).
+            _mIcon = Member.Resolve(defType, "uiIcon", needWrite: true, preferField: true);
+            _mMat = Member.Resolve(defType, "uiIconMaterial", needWrite: true, preferField: true);
+            _mGraphic = Member.Resolve(defType, "graphic", needWrite: false, preferField: true);
+            _mGraphicData = Member.Resolve(defType, "graphicData", needWrite: false, preferField: true);
+            _mDefName = Member.Resolve(defType, "defName", needWrite: false, preferField: true);
+
+            if (_mIcon == null)
+                Refl.Warn("drawfix: uiIcon neither a writable field nor a writable property on "
+                          + defType.Name + " - draw-time repair disabled");
+            else
+                Refl.Info("drawfix: uiIcon resolved as " + _mIcon.Kind + " on " + _mIcon.DeclaringTypeName
+                          + (_mIcon.IsStatic ? " (static)" : "") + (_mIcon.CanWrite ? " (writable)" : " (read-only)"));
+
+            if (_mMat == null)
+                Refl.Info("drawfix: uiIconMaterial not writable on " + defType.Name + " - material drop disabled");
+            else
+                Refl.Info("drawfix: uiIconMaterial resolved as " + _mMat.Kind + " on " + _mMat.DeclaringTypeName);
 
             try
             {
-                Type gdType = _fGraphicData == null ? null : _fGraphicData.FieldType;
-                if (gdType != null) _fTexPath = Field(gdType, "texPath");
-                Type gType = _fGraphic == null ? null : _fGraphic.FieldType;
-                if (gType != null) _fPath = Field(gType, "path");
+                Type gdType = _mGraphicData == null ? null : _mGraphicData.ValueType;
+                if (gdType != null) _mTexPath = Member.Resolve(gdType, "texPath", needWrite: false, preferField: true);
+                Type gType = _mGraphic == null ? null : _mGraphic.ValueType;
+                if (gType != null) _mPath = Member.Resolve(gType, "path", needWrite: false, preferField: true);
             }
             catch { }
 
@@ -250,16 +276,6 @@ namespace AgentTouchFix
                 }
             }
             catch (Exception e) { WarnOnce("ContentFinder: " + e.Message); }
-        }
-
-        private static FieldInfo Field(Type t, string name)
-        {
-            for (Type c = t; c != null; c = c.BaseType)
-            {
-                FieldInfo f = c.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (f != null) return f;
-            }
-            return null;
         }
 
         private static object Prop(object o, string name)

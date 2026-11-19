@@ -59,8 +59,14 @@ namespace AgentTouchFix
 
         // ---- equipment / placement ---------------------------------------------------------------
         private static PropertyInfo _pPrimary;
-        private static MethodInfo _mStandable;
+        private static MethodInfo _mStandable;      // Verse.GenGrid.Standable(IntVec3, Map), else IntVec3.Standable(Map)
+        private static bool _standableStatic;       // true for the GenGrid form: two arguments, null target
         private static ConstructorInfo _cCell;
+
+        // ---- player faction ------------------------------------------------------------------------
+        // RimWorld.Faction.OfPlayer is a static, get-only *property* (docs/REFLECTION-FACTS.md), and
+        // the type lives in RimWorld, not Verse - both were assumed wrong in 2.6.1.
+        private static Member _mOfPlayer;
 
         // ---- caches ------------------------------------------------------------------------------
         private static readonly Dictionary<string, FieldInfo> _fields = new Dictionary<string, FieldInfo>();
@@ -184,7 +190,13 @@ namespace AgentTouchFix
             try
             {
                 object playerFaction = PlayerFaction();
-                if (playerFaction == null) { Refl.Warn("testspawn: Faction.OfPlayer not found"); return; }
+                if (playerFaction == null)
+                {
+                    Refl.Warn("testspawn: Faction.OfPlayer returned null ("
+                              + (_mOfPlayer == null ? "member not resolved" : _mOfPlayer.Kind + " on " + _mOfPlayer.DeclaringTypeName)
+                              + ")");
+                    return;
+                }
 
                 int pawns = 0, withWeapon = 0, spawned = 0;
 
@@ -383,7 +395,15 @@ namespace AgentTouchFix
         {
             if (cell == null || map == null) return false;
             if (_mStandable == null) return true;
-            try { return Invoke(_mStandable, cell, new[] { map }) is bool ok && ok; }
+            try
+            {
+                // Verse.GenGrid.Standable(IntVec3, Map) is static: two arguments, no target.
+                // IntVec3.Standable(Map) is the fallback shape: the cell is the target.
+                object ok = _standableStatic
+                    ? Invoke(_mStandable, null, new[] { cell, map })
+                    : Invoke(_mStandable, cell, new[] { map });
+                return ok is bool b && b;
+            }
             catch { return true; }
         }
 
@@ -568,10 +588,7 @@ namespace AgentTouchFix
 
         private static object PlayerFaction()
         {
-            if (_tFaction == null) return null;
-            PropertyInfo p = Prop(_tFaction, "OfPlayer");
-            if (p != null && p.GetGetMethod(true) != null && p.GetGetMethod(true).IsStatic) return Read(null, p, null);
-            return Read(Field(_tFaction, "OfPlayer"), p, null);
+            return _mOfPlayer == null ? null : _mOfPlayer.Get(null);   // static property: no instance
         }
 
         private static IEnumerable<object> AllThings(object map)
@@ -720,11 +737,24 @@ namespace AgentTouchFix
             _tThing = Refl.T("Verse.Thing");
             _tDef = Refl.T("Verse.ThingDef");
             _tPawn = Refl.T("Verse.Pawn");
-            _tFaction = Refl.T("Verse.Faction");
+            // The faction class moved to RimWorld in this build: Verse.Faction does not exist, so the
+            // 2.6.1 lookup returned null before it ever asked for OfPlayer (docs/REFLECTION-FACTS.md).
+            _tFaction = ResolveFactionType();
             _tMap = Refl.T("Verse.Map");
             _tThingMaker = Refl.T("Verse.ThingMaker");
             _tGenSpawn = Refl.T("Verse.GenSpawn");
             _tBaseContent = Refl.T("Verse.BaseContent");
+
+            // OfPlayer is a static, get-only property - prefer the property, and accept a field if a
+            // future build turns it back into one. Read-only use, so no writability requirement.
+            _mOfPlayer = _tFaction == null ? null : Member.Resolve(_tFaction, "OfPlayer", needWrite: false, preferField: false);
+            if (_mOfPlayer == null)
+                Refl.Warn("testspawn: OfPlayer neither a field nor a property on "
+                          + (_tFaction == null ? "Verse.Faction / RimWorld.Faction (type not found)" : _tFaction.FullName)
+                          + " - the load snapshot is disabled");
+            else
+                Refl.Info("testspawn: OfPlayer resolved as " + _mOfPlayer.Kind + " on " + _mOfPlayer.DeclaringTypeName
+                          + (_mOfPlayer.IsStatic ? " (static)" : " (instance)"));
 
             if (_tDef != null)
             {
@@ -785,18 +815,7 @@ namespace AgentTouchFix
             if (_tIntVec3 != null)
             {
                 _cCell = _tIntVec3.GetConstructor(new[] { typeof(int), typeof(int), typeof(int) });
-                if (_tMap != null)
-                {
-                    foreach (MethodInfo m in _tIntVec3.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-                    {
-                        if (m.Name != "Standable") continue;
-                        ParameterInfo[] ps = m.GetParameters();
-                        if (ps.Length != 1) continue;
-                        if (!ps[0].ParameterType.IsAssignableFrom(_tMap)) continue;
-                        _mStandable = m;
-                        break;
-                    }
-                }
+                if (_tMap != null) ResolveStandable();
             }
 
             if (_tBaseContent != null)
@@ -810,8 +829,80 @@ namespace AgentTouchFix
                       + " pawn=" + (_tPawn != null) + " map=" + (_tMap != null)
                       + " maker=" + (_tThingMaker != null) + " genspawn=" + (_tGenSpawn != null)
                       + " allthings=" + (_fAllThings != null || _pAllThings != null)
-                      + " standable=" + (_mStandable != null) + " cell=" + (_cCell != null)
+                      + " standable=" + (_mStandable == null ? "none" : _standableStatic ? "static" : "instance")
+                      + " cell=" + (_cCell != null)
+                      + " faction=" + (_tFaction == null ? "none" : _tFaction.Name)
+                      + " ofplayer=" + (_mOfPlayer == null ? "none" : _mOfPlayer.Kind)
                       + " badTex=" + (_badTex != null));
+        }
+
+        /// <summary>
+        /// Verse.Faction does not exist in this build - the class is RimWorld.Faction. Tried in the
+        /// order the game's own sources use, so a future build that moves it back still resolves.
+        /// </summary>
+        private static Type ResolveFactionType()
+        {
+            Type t = Refl.T("Verse.Faction") ?? Refl.T("RimWorld.Faction");
+            if (t != null) Refl.Info("testspawn: faction type " + t.FullName);
+            return t;
+        }
+
+        /// <summary>
+        /// Standable is Verse.GenGrid.Standable(IntVec3 c, Map map) - a *static* method on a helper
+        /// class, not an instance method of IntVec3. 2.6.1 searched only the instance shape, found
+        /// nothing, and left the check empty, so every cell counted as usable (the log said
+        /// "standable=False" and copies then landed on unwalkable cells). The instance shape is still
+        /// probed as a fallback, and a total miss stays fail-open.
+        /// </summary>
+        private static void ResolveStandable()
+        {
+            MethodInfo stat = null, instance = null;
+            try
+            {
+                Type genGrid = Refl.T("Verse.GenGrid");
+                if (genGrid != null)
+                {
+                    foreach (MethodInfo m in genGrid.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                    {
+                        if (m.Name != "Standable") continue;
+                        ParameterInfo[] ps = m.GetParameters();
+                        if (ps.Length != 2) continue;
+                        if (ps[0].ParameterType != _tIntVec3) continue;
+                        if (!ps[1].ParameterType.IsAssignableFrom(_tMap)) continue;
+                        stat = m;
+                        break;
+                    }
+                }
+
+                if (stat == null)
+                {
+                    foreach (MethodInfo m in _tIntVec3.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
+                    {
+                        if (m.Name != "Standable") continue;
+                        ParameterInfo[] ps = m.GetParameters();
+                        if (ps.Length != 1) continue;
+                        if (!ps[0].ParameterType.IsAssignableFrom(_tMap)) continue;
+                        instance = m;
+                        break;
+                    }
+                }
+            }
+            catch (Exception e) { WarnOnce("standable lookup: " + e.Message); }
+
+            int kind = MemberChoice.Standable(stat != null, instance != null);
+            _standableStatic = kind == MemberChoice.StandableStatic;
+            _mStandable = _standableStatic ? stat
+                        : kind == MemberChoice.StandableInstance ? instance
+                        : null;
+
+            if (kind == MemberChoice.StandableStatic)
+                Refl.Info("testspawn: standable resolved as static " + stat.DeclaringType.Name + ".Standable("
+                          + _tIntVec3.Name + ", " + _tMap.Name + ")");
+            else if (kind == MemberChoice.StandableInstance)
+                Refl.Info("testspawn: standable resolved as instance " + _tIntVec3.Name + ".Standable(" + _tMap.Name + ")");
+            else
+                Refl.Warn("testspawn: no Standable(" + _tIntVec3.Name + ", " + _tMap.Name
+                          + ") found - every cell is treated as usable");
         }
 
         private static void WarnOnce(string m)
