@@ -177,6 +177,24 @@ DebugActionsMisc.HotReloadDefs → PlayDataLoader.HotReloadDefs（同上）
 
 日志位置：`<游戏目录>/agenttouchfix.log`（设备上为 `files/game/`）。
 
+### 6.1 诊断模块 testspawn
+
+用来在**用户自己的存档**里一次载入就拿到可判定的证据：同一 def 的武器，某些实例正常、某些空白，说明差异在实例级 `Graphic`。
+
+- **闸门**：只在存档载入路径触发（`Root_Play.LoadedGame` / `Game.LoadGame` / `SavedGameLoaderNow.LoadGameFromSaveFileNow` 依次取第一个可用的），载入后的首 tick 执行。新开局地图不执行。取不到载入回调时整个模块不安装（不会退回 `Map.FinalizeInit`，因为它无法区分读档与开局）。
+- **动作**：对每个玩家阵营小人，若装备栏有主武器，就在小人所在格 `ThingMaker.MakeThing(def, stuff)` + `GenSpawn.Spawn` 复制一件到地上；质量（`CompQuality`）与耐久能复制就复制，复制不了只丢该字段、照样生成。小人身上那件不动（不重掷、不替换、不删除）。同一格已有物品堆直接叠。
+- **位置回退**：小人脚下不可放置时，按固定罗盘顺序（N/E/S/W 再四角）找第一个可放置的相邻格，并记一行 `test: fallback`；都没有则 `test: skip`。
+- **日志**（每件一对，上限各 20 行）：
+
+```
+test: origin def=<defName> id=<id> graphic=<类型> tex=<name> size=WxH uiIcon=<name|BadTex> same=<true|false>
+test: spawn  def=<defName> id=<id> graphic=<类型> tex=<name> size=WxH uiIcon=<name|BadTex> same=<true|false>
+```
+
+`same` = 实例主贴图与 `def.uiIcon` 是否同一对象（两边任一为空一律 false，避免"两边都空"被读成一致）。`origin` 与 `spawn` 字段相同、顺序相同，两行相减就是实例级差异。
+
+失败只记一行 `test: skip <reason>`，全程 try/catch，绝不中断载入。每次载入都会再复制一件（便于反复观察），不做去重。
+
 ---
 
 ## 7. 构建与验证

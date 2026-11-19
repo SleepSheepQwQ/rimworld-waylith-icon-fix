@@ -16,6 +16,7 @@
     <Compile Include="../../mod/Source/CollectionVariants.cs" Link="CollectionVariants.cs" />
     <Compile Include="../../mod/Source/ExtensionFallback.cs" Link="ExtensionFallback.cs" />
     <Compile Include="../../mod/Source/IconFallbackDecision.cs" Link="IconFallbackDecision.cs" />
+    <Compile Include="../../mod/Source/TestSpawnDecision.cs" Link="TestSpawnDecision.cs" />
   </ItemGroup>
 
   <ItemGroup>

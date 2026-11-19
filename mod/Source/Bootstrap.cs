@@ -35,12 +35,15 @@ namespace AgentTouchFix
                 CollectionFix.Install();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
+                TestSpawn.Install();
 
-                Refl.Info("BUILD 2.6.0 iconfallback"
+                Refl.Info("BUILD 2.6.1 iconfallback"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
                           + " + collection variant mask filter"
-                          + " + def-level icon fallback when the instance texture is unusable)");
+                          + " + def-level icon fallback when the instance texture is unusable"
+                          + " + testspawn diagnostic: after a save loads, one copy of each held weapon"
+                          + " is dropped at the pawn and both instances are logged)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
