@@ -3,43 +3,45 @@ using Xunit;
 namespace AgentTouchFix.Tests
 {
     /// <summary>
-    /// TestSpawnDecision - the two log lines of the diagnostic module, asserted character for
-    /// character: the whole point of the module is a log the user can grep, and the origin/spawn pair
-    /// is only useful when both lines carry the same fields in the same order.
+    /// TestSpawnDecision - the log lines of the read-only diagnostic, asserted character for
+    /// character. The whole point of the module is a log the user can grep, so the field order and
+    /// the spelling of every column are part of the contract.
     /// </summary>
     public class TestSpawnLineTests
     {
-        /// <summary>The pair as it appears in the log, with every field populated.</summary>
+        /// <summary>The line as it appears in the log, with every field populated.</summary>
         [Fact]
-        public void OriginAndSpawnLinesHaveTheDocumentedShape()
+        public void ThingLineHasTheDocumentedShape()
         {
-            string origin = TestSpawnDecision.OriginLine(
-                "UniqueRevolverA", 1234, "Graphic_Single", "UniqueRevolverA", 512, 512, "UniqueRevolverA", true);
-            string spawn = TestSpawnDecision.SpawnLine(
-                "UniqueRevolverA", 1235, "Graphic_Single", "UniqueRevolverA", 512, 512, "UniqueRevolverA", true);
+            string line = TestSpawnDecision.ThingLine(
+                "Gun_Revolver_Unique", 1234, "Graphic_Collection", "UniqueRevolverA", 512, 512,
+                "UniqueRevolverA", true, 5);
 
-            Assert.Equal("test: origin def=UniqueRevolverA id=1234 graphic=Graphic_Single" +
-                         " tex=UniqueRevolverA size=512x512 uiIcon=UniqueRevolverA same=true", origin);
-            Assert.Equal("test: spawn  def=UniqueRevolverA id=1235 graphic=Graphic_Single" +
-                         " tex=UniqueRevolverA size=512x512 uiIcon=UniqueRevolverA same=true", spawn);
+            Assert.Equal("test: thing def=Gun_Revolver_Unique id=1234 graphic=Graphic_Collection" +
+                         " tex=UniqueRevolverA size=512x512 uiIcon=UniqueRevolverA same=true subgraphics=5",
+                         line);
         }
 
-        /// <summary>The two lines carry the same fields in the same order, so the only differences a
-        /// reader (or a diff) sees are the prefix and the id.</summary>
+        /// <summary>The eight columns in this order, because the report and the docs quote them in this
+        /// order and a reader diffs two lines by eye.</summary>
         [Fact]
-        public void TheTwoLinesDifferOnlyInTheirPrefixAndId()
+        public void TheColumnsAppearInTheDocumentedOrder()
         {
-            // same id on purpose: then everything after the prefix must be identical
-            string origin = TestSpawnDecision.OriginLine("X", 1, "Graphic_Single", "X", 64, 64, "X", true);
-            string spawn = TestSpawnDecision.SpawnLine("X", 1, "Graphic_Single", "X", 64, 64, "X", true);
+            string line = TestSpawnDecision.ThingLine("D", 1, "G", "T", 1, 1, "U", false, 2);
 
-            Assert.Equal(origin.Substring("test: origin ".Length),
-                         spawn.Substring("test: spawn  ".Length));
+            int def = line.IndexOf(" def=", System.StringComparison.Ordinal);
+            int id = line.IndexOf(" id=", System.StringComparison.Ordinal);
+            int graphic = line.IndexOf(" graphic=", System.StringComparison.Ordinal);
+            int tex = line.IndexOf(" tex=", System.StringComparison.Ordinal);
+            int size = line.IndexOf(" size=", System.StringComparison.Ordinal);
+            int icon = line.IndexOf(" uiIcon=", System.StringComparison.Ordinal);
+            int same = line.IndexOf(" same=", System.StringComparison.Ordinal);
+            int subs = line.IndexOf(" subgraphics=", System.StringComparison.Ordinal);
 
-            // with different ids the id is the only further difference
-            string other = TestSpawnDecision.SpawnLine("X", 2, "Graphic_Single", "X", 64, 64, "X", true);
-            Assert.Equal(origin.Replace("test: origin ", "test: spawn  ").Replace(" id=1 ", " id=2 "), other);
-            Assert.NotEqual(origin, other);
+            Assert.StartsWith("test: thing", line);
+            Assert.True(def > 0 && id > def && graphic > id && tex > graphic && size > tex
+                        && icon > size && same > icon && subs > same,
+                        "columns are out of order: " + line);
         }
 
         /// <summary>What a blank icon looks like on this port: the instance texture is the BadTex
@@ -47,33 +49,33 @@ namespace AgentTouchFix.Tests
         [Fact]
         public void ADeadTexturePrintsBadTexAndNoSize()
         {
-            string line = TestSpawnDecision.OriginLine("UniqueRevolverA", 7, "Graphic_Random", "BadTex", 0, 0, "BadTex", true);
+            string line = TestSpawnDecision.ThingLine("UniqueRevolverA", 7, "Graphic_Random", "BadTex", 0, 0, "BadTex", true, -1);
 
-            Assert.Equal("test: origin def=UniqueRevolverA id=7 graphic=Graphic_Random" +
-                         " tex=BadTex size=null uiIcon=BadTex same=true", line);
+            Assert.Equal("test: thing def=UniqueRevolverA id=7 graphic=Graphic_Random" +
+                         " tex=BadTex size=null uiIcon=BadTex same=true subgraphics=-", line);
         }
 
         [Fact]
         public void MissingValuesPrintAsNullRatherThanBlanks()
         {
-            const string expected = "test: spawn  def=null id=0 graphic=null tex=null size=null" +
-                                    " uiIcon=null same=false";
+            const string expected = "test: thing def=null id=0 graphic=null tex=null size=null" +
+                                    " uiIcon=null same=false subgraphics=-";
 
-            Assert.Equal(expected, TestSpawnDecision.SpawnLine(null, 0, null, null, 0, 0, null, false));
-            Assert.Equal(expected, TestSpawnDecision.SpawnLine("", 0, "", "", 0, 0, "", false));
-            Assert.Equal(expected, TestSpawnDecision.SpawnLine("   ", 0, " \t", " ", 0, 0, "  ", false));
+            Assert.Equal(expected, TestSpawnDecision.ThingLine(null, 0, null, null, 0, 0, null, false, -1));
+            Assert.Equal(expected, TestSpawnDecision.ThingLine("", 0, "", "", 0, 0, "", false, -1));
+            Assert.Equal(expected, TestSpawnDecision.ThingLine("   ", 0, " \t", " ", 0, 0, "  ", false, -1));
         }
 
-        /// <summary>One thing is one line: a defName or a label that arrives with a newline must not
-        /// split the entry and break line-based counting.</summary>
+        /// <summary>One thing is one line: a defName that arrives with a newline must not split the
+        /// entry and break line-based counting.</summary>
         [Fact]
         public void ControlCharactersCollapseSoOneThingStaysOneLine()
         {
-            string line = TestSpawnDecision.OriginLine("Weapon\nRanged\tA", 3, "Graphic_Single", "Tex", 128, 128, "Tex", false);
+            string line = TestSpawnDecision.ThingLine("Weapon\nRanged\tA", 3, "Graphic_Single", "Tex", 128, 128, "Tex", false, -1);
 
             Assert.DoesNotContain("\n", line);
             Assert.DoesNotContain("\t", line);
-            Assert.StartsWith("test: origin def=Weapon Ranged A id=3", line);
+            Assert.StartsWith("test: thing def=Weapon Ranged A id=3", line);
             Assert.Single(line.Split('\n'));
         }
 
@@ -101,20 +103,33 @@ namespace AgentTouchFix.Tests
             Assert.Equal(expected, TestSpawnDecision.Size(width, height));
         }
 
-        [Fact]
-        public void SkipAndFallbackLinesHaveTheDocumentedShape()
+        /// <summary>The variant column: a real count, including a degenerate zero, or "-" when the
+        /// graphic has no variants at all. A missing count must never read as "zero variants".</summary>
+        [Theory]
+        [InlineData(-1, "-")]
+        [InlineData(0, "0")]
+        [InlineData(1, "1")]
+        [InlineData(5, "5")]
+        [InlineData(10, "10")]
+        public void SubGraphicsPrintsACountOrADash(int count, string expected)
         {
-            Assert.Equal("test: skip no placeable cell at 12,34",
-                         TestSpawnDecision.SkipLine("no placeable cell at 12,34"));
-            Assert.Equal("test: skip null", TestSpawnDecision.SkipLine(null));
-            Assert.Equal("test: fallback plasteel longsword from=12,34 to=13,34",
-                         TestSpawnDecision.FallbackLine("plasteel longsword", "12,34", "13,34"));
+            Assert.Equal(expected, TestSpawnDecision.SubGraphicsText(count));
         }
 
         [Fact]
-        public void TheLineBudgetIsTwentyPerLoad()
+        public void SkipLineHasTheDocumentedShape()
         {
-            Assert.Equal(20, TestSpawnDecision.LineCap);
+            Assert.Equal("test: skip line cap reached cap=20", TestSpawnDecision.SkipLine("line cap reached cap=20"));
+            Assert.Equal("test: skip null", TestSpawnDecision.SkipLine(null));
+        }
+
+        /// <summary>The one line an empty load is allowed to write, spelled out in full - this exact
+        /// string is what a reader greps for.</summary>
+        [Fact]
+        public void NoPlayerPawnsLineIsExactlyAsDocumented()
+        {
+            Assert.Equal("test: skip no-player-pawns",
+                         TestSpawnDecision.SkipLine(TestSpawnDecision.NoPlayerPawns));
         }
     }
 
@@ -161,35 +176,26 @@ namespace AgentTouchFix.Tests
     }
 
     /// <summary>
-    /// Where the copy goes: the pawn's own cell first, an adjacent cell only when the pawn's cell
-    /// cannot hold a thing, and nowhere at all when neither can. The full four-case table, because each
-    /// row is a different outcome the caller must log (here / fallback line / skip line).
+    /// The output budget: a hard cap per load, because the module writes into the player's own log.
     /// </summary>
-    public class TestSpawnPlacementTests
+    public class TestSpawnBudgetTests
     {
+        [Fact]
+        public void TheLineBudgetIsTwentyPerLoad()
+        {
+            Assert.Equal(20, TestSpawnDecision.LineCap);
+        }
+
         [Theory]
-        // cell usable: always here, whatever the neighbours look like
-        [InlineData(true, true, "Here")]
-        [InlineData(true, false, "Here")]
-        // cell unusable: next door if possible, otherwise nothing
-        [InlineData(false, true, "Adjacent")]
-        [InlineData(false, false, "None")]
-        public void ChoosesTheCellThenANeighbour(bool cellUsable, bool neighbourUsable, string expected)
+        [InlineData(0, 20, true)]
+        [InlineData(1, 20, true)]
+        [InlineData(19, 20, true)]
+        [InlineData(20, 20, false)]
+        [InlineData(21, 20, false)]
+        [InlineData(0, 0, false)]
+        public void HasRoomStopsExactlyAtTheCap(int written, int cap, bool expected)
         {
-            Assert.Equal(expected, TestSpawnDecision.Choose(cellUsable, neighbourUsable).ToString());
-        }
-
-        [Fact]
-        public void TheCellIsPreferredOverAnyNeighbour()
-        {
-            // an occupied cell (an item stack already lying there) is a fine place: things stack
-            Assert.Equal("Here", TestSpawnDecision.Choose(true, true).ToString());
-        }
-
-        [Fact]
-        public void NothingIsPlacedWhenThereIsNowhereToPutIt()
-        {
-            Assert.Equal("None", TestSpawnDecision.Choose(false, false).ToString());
+            Assert.Equal(expected, TestSpawnDecision.HasRoom(written, cap));
         }
     }
 }

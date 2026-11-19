@@ -177,23 +177,28 @@ DebugActionsMisc.HotReloadDefs → PlayDataLoader.HotReloadDefs（同上）
 
 日志位置：`<游戏目录>/agenttouchfix.log`（设备上为 `files/game/`）。
 
-### 6.1 诊断模块 testspawn
+### 6.1 诊断模块 testspawn（2.6.3 起为纯只读）
 
 用来在**用户自己的存档**里一次载入就拿到可判定的证据：同一 def 的武器，某些实例正常、某些空白，说明差异在实例级 `Graphic`。
 
-- **闸门**：只在存档载入路径触发（`Root_Play.LoadedGame` / `Game.LoadGame` / `SavedGameLoaderNow.LoadGameFromSaveFileNow` 依次取第一个可用的），载入后的首 tick 执行。新开局地图不执行。取不到载入回调时整个模块不安装（不会退回 `Map.FinalizeInit`，因为它无法区分读档与开局）。
-- **动作**：对每个玩家阵营小人，若装备栏有主武器，就在小人所在格 `ThingMaker.MakeThing(def, stuff)` + `GenSpawn.Spawn` 复制一件到地上；质量（`CompQuality`）与耐久能复制就复制，复制不了只丢该字段、照样生成。小人身上那件不动（不重掷、不替换、不删除）。同一格已有物品堆直接叠。
-- **位置回退**：小人脚下不可放置时，按固定罗盘顺序（N/E/S/W 再四角）找第一个可放置的相邻格，并记一行 `test: fallback`；都没有则 `test: skip`。
-- **日志**（每件一对，上限各 20 行）：
+**只读合同**：模块内不存在任何创建、生成、删除、移动世界对象的路径。2.6.2 曾在载入窗口期 `MakeThing` 一件独特武器样例，结果是 `libcoreclr SIGSEGV（Thread-9）` 闪退；诊断不值得用一次载入冒险，所以这条约束由 CI 的 grep 断言锁死（`.github/workflows/build.yml` 的 "Read-only guard" 步骤），不是靠注释承诺。
+
+- **启动行**：`testspawn: read-only mode (no objects created)` —— 在 `Install()` 第一行无条件写出，看日志就能区分 2.6.3 与 2.6.2。
+- **闸门**：只在存档载入路径触发（`Root_Play.LoadedGame` / `Game.LoadGame` / `SavedGameLoaderNow.LoadGameFromSaveFileNow` 依次取第一个可用的；本移植版实际命中 `Game.LoadGame`，因为 `Root_Play` 没有 `LoadedGame`）。装上 tick 钩子（`Map.MapUpdate`）时，遍历在载入回调之后的**下一个 tick** 执行，让反序列化先结束；取不到 tick 钩子才直接在回调里跑。新开局地图不执行。取不到载入回调时整个模块不安装（不会退回 `Map.FinalizeInit`，因为它无法区分读档与开局）。
+- **枚举**：遍历 `Verse.Find.Maps` 里每张地图的 `mapPawns.AllPawnsSpawned`（先复制成列表再遍历，读的过程中集合变化不会抛异常），按 `p.Faction == Faction.OfPlayer` 引用过滤。**不依赖 `Faction.OfPlayer` 非空**：读不到时比较对象是 null，匹配不到任何小人，不会退化成"全部小人"。
+- **零小人**：一个玩家小人都没有（空殖民地 / 主菜单载入 / 阵营未建立）时，本次载入**只写一行** `test: skip no-player-pawns`。
+- **日志**（每件一行，单次载入上限 20 行；每个小人记它自己，以及它当前主武器那一件）：
 
 ```
-test: origin def=<defName> id=<id> graphic=<类型> tex=<name> size=WxH uiIcon=<name|BadTex> same=<true|false>
-test: spawn  def=<defName> id=<id> graphic=<类型> tex=<name> size=WxH uiIcon=<name|BadTex> same=<true|false>
+test: thing def=<defName> id=<id> graphic=<类型> tex=<name> size=WxH uiIcon=<name|BadTex> same=<true|false> subgraphics=<n|->
 ```
 
-`same` = 实例主贴图与 `def.uiIcon` 是否同一对象（两边任一为空一律 false，避免"两边都空"被读成一致）。`origin` 与 `spawn` 字段相同、顺序相同，两行相减就是实例级差异。
+- `same` = 实例主贴图与 `def.uiIcon` 是否同一对象（两边任一为空一律 false，避免"两边都空"被读成一致）。
+- `subgraphics` 只在 graphic 的类型链上有 `Graphic_Collection` 时用反射取 `subGraphics` 数组长度；其它 graphic 打印 `-`（缺失的计数不能读成 0 个变体）。`Graphic_Random` 继承 `Graphic_Collection`，所以在它上面也会打印真实变体数。
+- `tex` 的取法与绘制一致：`MatAt(Rot4, Thing).mainTexture` → `MatSingle` → `Graphic_Single.mat` / `Graphic_Multi.mats[]`。
+- 超过 20 行时补一行 `test: skip line cap reached cap=20`，随后一行 `testspawn: done maps=<n> pawns=<n> lines=<n>`。
 
-失败只记一行 `test: skip <reason>`，全程 try/catch，绝不中断载入。每次载入都会再复制一件（便于反复观察），不做去重。
+失败只记一行 `test: skip <reason>` / 一条 `testspawn:` 警告（每进程一次），全程 try/catch，绝不中断载入。同名模块**不修改任何东西**：不重掷、不替换、不移动、不删除小人与物品。
 
 ---
 

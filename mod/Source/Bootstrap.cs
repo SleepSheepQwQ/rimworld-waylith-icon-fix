@@ -37,17 +37,16 @@ namespace AgentTouchFix
                 IconFallbackFix.Install();
                 TestSpawn.Install();
 
-                Refl.Info("BUILD 2.6.2 iconfallback"
+                Refl.Info("BUILD 2.6.3 iconfallback"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
                           + " + collection variant mask filter"
                           + " + def-level icon fallback when the instance texture is unusable"
-                          + " + testspawn diagnostic: after a save loads, one copy of each held weapon"
-                          + " is dropped at the pawn and both instances are logged"
+                          + " + testspawn diagnostic: read-only, after a save loads it logs one"
+                          + " `test: thing` line per player pawn (and its primary weapon), creating"
+                          + " nothing"
                           + " + member lookup by shape: field-then-property, static-aware, both"
-                          + " GetIconFor material overloads, static GenGrid.Standable"
-                          + " + fixture sample: one unique-weapon def spawned on every load"
-                          + " (by defName, else the first Graphic_Random def that has masks)");
+                          + " GetIconFor material overloads, static GenGrid.Standable");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }

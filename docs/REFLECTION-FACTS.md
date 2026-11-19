@@ -124,20 +124,48 @@ lookups): `uiIcon resolved as field on Verse.BuildableDef (writable)`,
 `OfPlayer resolved as property on RimWorld.Faction (static)`, `patched 2 of 3`,
 `standable resolved as static GenGrid.Standable(IntVec3, Map)`.
 
-## 6. Members the fixture sample leans on
+## 6. Members the read-only walk leans on
+
+Every one of these was re-checked against the shipped assembly for 2.6.3 (metadata only, nothing
+loaded or executed), because 2.6.1 and 2.6.2 both shipped members that did not exist:
 
 ```
-Verse.DefDatabase`1.AllDefs                    (static property, IEnumerable<T>)
-Verse.ThingDef.graphicData : Verse.GraphicData [Public field]
-Verse.GraphicData.graphicClass : System.Type    [Public field]   -> "Graphic_Random", ...
-Verse.GraphicData.texPath : string              [Public field]
-Verse.Graphic_Collection.subGraphics : Verse.Graphic[] [Public field]  -> the variant count
-Verse.Map.Center : Verse.IntVec3                (instance property, get-only)
-Verse.ContentFinder`1.Get(string itemPath, bool reportFailure) : !0   [Public, Static]
+Verse.Find.Maps                                (static property, List<Map>)
+Verse.Find.CurrentMap                          (static property, fallback when Maps is empty)
+Verse.Map.mapPawns : Verse.MapPawns            [Public field]
+Verse.MapPawns.AllPawnsSpawned                 (instance property, IReadOnlyList<Pawn>)
+Verse.MapPawns.pawnsSpawned : List<Pawn>       [Public field]  (backing list, kept as fallback)
+Verse.Map.MapUpdate()                          (instance, 0 params -> the tick hook)
+Verse.Game.LoadGame()                          (instance, 0 params -> the load gate)
+Verse.Root_Play.LoadedGame                     -> DOES NOT EXIST in this port
+Verse.Thing.graphicInt : Verse.Graphic         [Public field]
+Verse.Thing.Graphic / DefaultGraphic / Rotation / thingIDNumber / Faction
+Verse.Thing.factionInt : RimWorld.Faction      [Public field]
+Verse.BuildableDef.uiIcon : UnityEngine.Texture2D [Public field] (ThingDef declares none)
+Verse.Graphic.MatAt(Rot4, Thing) : Material    (2 params, virtual)
+Verse.Graphic.MatSingle                        (instance property; NOT a field named matSingle)
+Verse.Graphic_Single.mat : Material            [Public field]
+Verse.Graphic_Multi.mats : Material[]          [Public field]
+Verse.Graphic_Collection.subGraphics : Graphic[] [Public field] -> the variant count
+Verse.Graphic_Random                           base chain: Graphic_Random -> Graphic_Collection
+Verse.Pawn.equipment : Verse.Pawn_EquipmentTracker [Public field]
+Verse.Pawn_EquipmentTracker.Primary            (instance property, get/set)
+Verse.BaseContent.BadTex                       [Public static InitOnly]
 ```
 
-`subGraphics` exists only on `Graphic_Collection`, which is what makes the "5 variants, not 10"
-question answerable from one line: the mod prints `subgraphics=<n>` for that class and `-` otherwise.
-The mask probe for the fallback selection uses `ContentFinder<Texture2D>.Get(..., false)` — the same
-silent lookup the graphics do — on `<texPath>_m` and `<texPath>A..C_m` / `_northm`, because a
-`Graphic_Random` def builds its variants as `texPath + 'A'..'Z'`.
+Two of these are load-bearing corrections:
+
+* **`Verse.Root_Play` has no `LoadedGame`.** The gate falls through to `Verse.Game.LoadGame`, which
+  is why the walk is bound to `Map.MapUpdate` (one tick later) whenever that hook installs: the load
+  callback then only arms the flag, and nothing is read while the deserializer is still running.
+* **`MatSingle` is a property, not a field.** The 2.6.2 texture read asked for a lowercase field
+  `matSingle`, got null on every graphic that ignores rotation, and would have printed `tex=null`
+  for anything the material accessor did not answer. The read now goes
+  `MatAt(rot, thing).mainTexture` -> `MatSingle` -> `Graphic_Single.mat` / `Graphic_Multi.mats[0]`.
+
+`subGraphics` exists only on `Graphic_Collection`, so the mod prints `subgraphics=<n>` for any type
+whose chain carries that class (`Graphic_Random` does) and `-` otherwise. Nothing in this list is
+written: the module is read-only, and the CI guard greps it for `MakeThing`, `ThingMaker`,
+`GenSpawn`, `DeSpawn`, `Destroy`, `Remove` and `Spawn(` so a future edit cannot quietly reintroduce
+a write path.
+

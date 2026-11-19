@@ -15,6 +15,35 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # The diagnostic is read-only by contract. 2.6.2 built a Thing inside the save-load window and
+      # the game died on libcoreclr SIGSEGV (Thread-9); a comment cannot hold that line, a grep can.
+      - name: Read-only guard (testspawn must not touch the world)
+        run: |
+          set -euo pipefail
+          FILES="mod/Source/TestSpawn.cs mod/Source/TestSpawnDecision.cs"
+          # Every way the 2.6.2 module reached into the world: building a Thing, placing it, deleting
+          # it, taking it out of a lister. None of these may appear - not as a call, not as a helper.
+          PATTERN='\b(MakeThing|ThingMaker|GenSpawn|DeSpawn|Destroy|Remove)\b|\bSpawn[[:space:]]*\(|\.Spawn\b'
+          if grep -nE "$PATTERN" $FILES; then
+            echo "::error::forbidden world-mutating member in the read-only diagnostic (see above)"
+            exit 1
+          fi
+          echo "guard: no MakeThing/GenSpawn/DeSpawn/Destroy/Remove member in the testspawn module"
+          # and it still has to be the module it claims to be
+          grep -q 'mapPawns' mod/Source/TestSpawn.cs
+          grep -q 'AllPawnsSpawned' mod/Source/TestSpawn.cs
+          grep -q 'Faction.OfPlayer' mod/Source/TestSpawn.cs || grep -q 'OfPlayer' mod/Source/TestSpawn.cs
+          grep -qF 'testspawn: read-only mode (no objects created)' mod/Source/TestSpawn.cs
+          echo "guard: read-only startup line, mapPawns walk and OfPlayer filter present"
+
+      - name: Version sync (About.xml == csproj)
+        run: |
+          set -euo pipefail
+          V_CS=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' mod/AgentTouchFix.csproj)
+          V_XML=$(sed -n 's:.*<modVersion>\(.*\)</modVersion>.*:\1:p' mod/About/About.xml)
+          echo "csproj=$V_CS about=$V_XML"
+          test -n "$V_CS" && test "$V_CS" = "$V_XML" || { echo "::error::version mismatch"; exit 1; }
+
       - name: Unit tests (shader math + icon routing)
         run: dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
 

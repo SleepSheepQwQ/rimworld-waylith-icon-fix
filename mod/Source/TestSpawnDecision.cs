@@ -4,51 +4,39 @@ using System.Globalization;
 namespace AgentTouchFix
 {
     /// <summary>
-    /// Pure half of the "testspawn" diagnostic: the two log lines, the <c>same</c> predicate, and the
-    /// placement decision (this cell, else an adjacent cell, else give up). No game types and no Unity
-    /// types, so CI exercises every branch here instead of on a device.
+    /// Pure half of the "testspawn" diagnostic: the log lines, the <c>same</c> predicate and the
+    /// line budget. No game types and no Unity types, so CI exercises every branch here instead of on
+    /// a device.
     ///
-    /// The question this answers: a weapon's *instance* graphic can be blank while the same def draws
-    /// fine on another instance. The diagnostic therefore copies the weapon to the ground - a brand new
-    /// instance made from the same def/stuff - and prints the original and the copy side by side, so
-    /// two instances of one def can be compared in a single log.
+    /// The question it answers: for one thing, what would the draw path actually use, and is that
+    /// texture the very object the def's <c>uiIcon</c> points at? A blank icon on one instance of a
+    /// def and a good icon on another is an instance-level split, and these columns are what tells
+    /// the two apart in a single log line.
+    ///
+    /// The module is read-only by contract: nothing here - and nothing in <see cref="TestSpawn"/> -
+    /// creates, deletes, moves or edits anything in the world. See the guard step in
+    /// .github/workflows/build.yml.
     /// </summary>
     internal static class TestSpawnDecision
     {
-        /// <summary>Origin lines (and, in lockstep, spawn lines) one load may write. Twenty pairs is
-        /// enough to compare instances and small enough that the log stays readable.</summary>
+        /// <summary>Log lines one load may write. Twenty is enough to compare instances and small
+        /// enough that the log stays readable.</summary>
         internal const int LineCap = 20;
 
         /// <summary>Longest value copied into a log line. Longer values are cut and marked with '~' so
         /// one thing stays one line.</summary>
         internal const int MaxCell = 200;
 
-        /// <summary>Where the copy can go.</summary>
-        internal enum Placement
+        /// <summary>The one line written when the loaded save has no player pawn at all. Spelled out
+        /// here so the log format cannot drift away from what a reader greps for.</summary>
+        internal const string NoPlayerPawns = "no-player-pawns";
+
+        // ------------------------------------------------------------------ budget
+
+        /// <summary>May another line be written? The cap is a hard limit on output, not a hint.</summary>
+        internal static bool HasRoom(int written, int cap)
         {
-            /// <summary>Nowhere: the cell is unusable and no neighbour is usable either.</summary>
-            None,
-
-            /// <summary>The pawn's own cell.</summary>
-            Here,
-
-            /// <summary>An adjacent cell; the caller logs the substitution.</summary>
-            Adjacent,
-        }
-
-        // ------------------------------------------------------------------ placement
-
-        /// <summary>
-        /// Cell first, then a neighbour: the copy belongs where the pawn stands, because that is what
-        /// makes the two instances easy to compare in game. Only a cell that cannot hold a thing sends
-        /// the copy sideways, and only when a neighbour can take it - otherwise nothing is spawned at
-        /// all rather than a thing dropped somewhere arbitrary.
-        /// </summary>
-        internal static Placement Choose(bool cellUsable, bool neighbourUsable)
-        {
-            if (cellUsable) return Placement.Here;
-            if (neighbourUsable) return Placement.Adjacent;
-            return Placement.None;
+            return written < cap;
         }
 
         // ------------------------------------------------------------------ same
@@ -69,88 +57,18 @@ namespace AgentTouchFix
         // ------------------------------------------------------------------ log lines
 
         /// <summary>
-        /// The original weapon:
-        /// <c>test: origin def=&lt;defName&gt; id=&lt;id&gt; graphic=&lt;type&gt; tex=&lt;name&gt;
-        /// size=WxH uiIcon=&lt;name|BadTex&gt; same=&lt;true|false&gt;</c>
-        /// </summary>
-        internal static string OriginLine(string defName, int id, string graphicType, string texName,
-                                          int width, int height, string uiIcon, bool same)
-        {
-            return Line("test: origin ", defName, id, graphicType, texName, width, height, uiIcon, same);
-        }
-
-        /// <summary>
-        /// The copy that was just made and dropped. Same fields, one extra space after "spawn" so the
-        /// two lines align in the log and in a grep.
-        /// </summary>
-        internal static string SpawnLine(string defName, int id, string graphicType, string texName,
-                                         int width, int height, string uiIcon, bool same)
-        {
-            return Line("test: spawn  ", defName, id, graphicType, texName, width, height, uiIcon, same);
-        }
-
-        private static string Line(string prefix, string defName, int id, string graphicType, string texName,
-                                   int width, int height, string uiIcon, bool same)
-        {
-            return prefix
-                 + "def=" + Cell(defName)
-                 + " id=" + Int(id)
-                 + " graphic=" + Cell(graphicType)
-                 + " tex=" + Cell(texName)
-                 + " size=" + Size(width, height)
-                 + " uiIcon=" + Cell(uiIcon)
-                 + " same=" + (same ? "true" : "false");
-        }
-
-        /// <summary><c>test: skip &lt;reason&gt;</c> - the only line a failure may produce, and never a
-        /// reason for the load to stop.</summary>
-        internal static string SkipLine(string reason)
-        {
-            return "test: skip " + Cell(reason);
-        }
-
-        /// <summary><c>test: fallback &lt;label&gt; from=&lt;x,z&gt; to=&lt;x,z&gt;</c> - the copy could
-        /// not stand where the pawn does, so it went next door.</summary>
-        internal static string FallbackLine(string label, string from, string to)
-        {
-            return "test: fallback " + Cell(label) + " from=" + Cell(from) + " to=" + Cell(to);
-        }
-
-        // ------------------------------------------------------------------ the fixture sample
-
-        /// <summary>The unique revolver the report is about - present in Odyssey, absent from the
-        /// save that could not reproduce the bug.</summary>
-        internal const string FixtureDefName = "Gun_Revolver_Unique";
-
-        /// <summary>Random-variant graphics are the ones whose variants carry their own masks.</summary>
-        internal const string RandomGraphicPrefix = "Graphic_Random";
-
-        /// <summary>
-        /// Is this def a usable sample? It has to have both properties that make a tile draw blank in
-        /// this port: a graphic that picks a random variant (so several sub-graphics exist and the
-        /// count is worth printing) and a mask that the content index actually has. A def without a
-        /// mask would be expected to draw fine and would prove nothing.
-        /// </summary>
-        internal static bool FixtureCandidate(string graphicClass, bool maskFound)
-        {
-            if (!maskFound || string.IsNullOrEmpty(graphicClass)) return false;
-            return graphicClass.StartsWith(RandomGraphicPrefix, StringComparison.Ordinal);
-        }
-
-        /// <summary>
-        /// <c>test: fixture def=&lt;defName&gt; id=&lt;id&gt; graphic=&lt;type&gt; tex=&lt;name&gt;
-        /// size=WxH uiIcon=&lt;name|BadTex&gt; same=&lt;bool&gt; graphicClass=&lt;type&gt;
-        /// texPath=&lt;path&gt; subgraphics=&lt;n|-&gt;</c>
+        /// One thing, one line:
+        /// <c>test: thing def=&lt;defName&gt; id=&lt;id&gt; graphic=&lt;type&gt; tex=&lt;name&gt;
+        /// size=WxH uiIcon=&lt;name|BadTex&gt; same=&lt;true|false&gt; subgraphics=&lt;n|-&gt;</c>
         ///
-        /// The first eight fields match the origin/spawn lines, so the same grep finds all three; the
-        /// last three answer "how many variants does this def really have" (5 vs 10) without a second
-        /// log line. subgraphics is "-" when the graphic is not a Graphic_Collection.
+        /// <paramref name="subGraphics"/> is the variant count only when the graphic really is a
+        /// <c>Graphic_Collection</c>; every other graphic passes -1 and prints "-", because a count
+        /// that does not exist must not read as zero variants.
         /// </summary>
-        internal static string FixtureLine(string defName, int id, string graphicType, string texName,
-                                           int width, int height, string uiIcon, bool same,
-                                           string graphicClass, string texPath, int subGraphics)
+        internal static string ThingLine(string defName, int id, string graphicType, string texName,
+                                         int width, int height, string uiIcon, bool same, int subGraphics)
         {
-            return "test: fixture"
+            return "test: thing"
                  + " def=" + Cell(defName)
                  + " id=" + Int(id)
                  + " graphic=" + Cell(graphicType)
@@ -158,9 +76,21 @@ namespace AgentTouchFix
                  + " size=" + Size(width, height)
                  + " uiIcon=" + Cell(uiIcon)
                  + " same=" + (same ? "true" : "false")
-                 + " graphicClass=" + Cell(graphicClass)
-                 + " texPath=" + Cell(texPath)
-                 + " subgraphics=" + (subGraphics < 0 ? "-" : Int(subGraphics));
+                 + " subgraphics=" + SubGraphicsText(subGraphics);
+        }
+
+        /// <summary>The variant count column: the count, or "-" when the graphic has no variants.</summary>
+        internal static string SubGraphicsText(int count)
+        {
+            return count < 0 ? "-" : Int(count);
+        }
+
+        /// <summary><c>test: skip &lt;reason&gt;</c> - the only line a failure may produce, and never a
+        /// reason for the load to stop. <c>SkipLine(NoPlayerPawns)</c> is exactly
+        /// <c>test: skip no-player-pawns</c>.</summary>
+        internal static string SkipLine(string reason)
+        {
+            return "test: skip " + Cell(reason);
         }
 
         // ------------------------------------------------------------------ field rendering
