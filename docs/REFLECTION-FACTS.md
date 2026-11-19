@@ -123,3 +123,21 @@ Verified against the real assembly outside CI (metadata only, nothing executed b
 lookups): `uiIcon resolved as field on Verse.BuildableDef (writable)`,
 `OfPlayer resolved as property on RimWorld.Faction (static)`, `patched 2 of 3`,
 `standable resolved as static GenGrid.Standable(IntVec3, Map)`.
+
+## 6. Members the fixture sample leans on
+
+```
+Verse.DefDatabase`1.AllDefs                    (static property, IEnumerable<T>)
+Verse.ThingDef.graphicData : Verse.GraphicData [Public field]
+Verse.GraphicData.graphicClass : System.Type    [Public field]   -> "Graphic_Random", ...
+Verse.GraphicData.texPath : string              [Public field]
+Verse.Graphic_Collection.subGraphics : Verse.Graphic[] [Public field]  -> the variant count
+Verse.Map.Center : Verse.IntVec3                (instance property, get-only)
+Verse.ContentFinder`1.Get(string itemPath, bool reportFailure) : !0   [Public, Static]
+```
+
+`subGraphics` exists only on `Graphic_Collection`, which is what makes the "5 variants, not 10"
+question answerable from one line: the mod prints `subgraphics=<n>` for that class and `-` otherwise.
+The mask probe for the fallback selection uses `ContentFinder<Texture2D>.Get(..., false)` — the same
+silent lookup the graphics do — on `<texPath>_m` and `<texPath>A..C_m` / `_northm`, because a
+`Graphic_Random` def builds its variants as `texPath + 'A'..'Z'`.

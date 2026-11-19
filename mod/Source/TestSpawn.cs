@@ -68,6 +68,11 @@ namespace AgentTouchFix
         // the type lives in RimWorld, not Verse - both were assumed wrong in 2.6.1.
         private static Member _mOfPlayer;
 
+        // ---- fixture sample (a def the save may not contain) ---------------------------------------
+        private static Member _mGraphicDataDef, _mGraphicClass, _mTexPathOfDef, _mCenter;
+        private static PropertyInfo _pAllDefs;          // DefDatabase<ThingDef>.AllDefs
+        private static MethodInfo _finderGet;           // ContentFinder<Texture2D>.Get(string, bool)
+
         // ---- caches ------------------------------------------------------------------------------
         private static readonly Dictionary<string, FieldInfo> _fields = new Dictionary<string, FieldInfo>();
         private static readonly Dictionary<string, PropertyInfo> _props = new Dictionary<string, PropertyInfo>();
@@ -194,14 +199,14 @@ namespace AgentTouchFix
                 {
                     Refl.Warn("testspawn: Faction.OfPlayer returned null ("
                               + (_mOfPlayer == null ? "member not resolved" : _mOfPlayer.Kind + " on " + _mOfPlayer.DeclaringTypeName)
-                              + ")");
-                    return;
+                              + ") - no pawn copies, the fixture sample still runs");
                 }
 
                 int pawns = 0, withWeapon = 0, spawned = 0;
 
                 foreach (object pawn in AllThings(map))
                 {
+                    if (playerFaction == null) break;
                     if (!IsPawn(pawn)) continue;
                     if (!ReferenceEquals(FactionOf(pawn), playerFaction)) continue;
                     pawns++;
@@ -220,6 +225,10 @@ namespace AgentTouchFix
 
                 Refl.Info("testspawn: done pawns=" + pawns + " with-primary=" + withWeapon
                           + " copies=" + spawned);
+
+                // Always last, and always attempted: the save that could not reproduce the bug has no
+                // unique weapon in it at all, so the sample has to come from the def database.
+                SpawnFixture(map, playerFaction);
             }
             catch (Exception e) { WarnOnce("run: " + e.Message); }
         }
@@ -293,6 +302,225 @@ namespace AgentTouchFix
 
         private delegate string LineBuilder(string defName, int id, string graphicType, string texName,
                                             int width, int height, string uiIcon, bool same);
+
+        // ------------------------------------------------------------------ the fixture sample
+
+        /// <summary>
+        /// Spawn one sample of a def the save is unlikely to contain, so a blank-icon report can be
+        /// reproduced from *any* save: the save that could not reproduce it had no unique weapon in
+        /// it at all.
+        ///
+        /// Selection: Odyssey's unique revolver by defName first; when this install does not have it,
+        /// the first def that has the shape that actually breaks - a Graphic_Random graphic whose
+        /// variants carry masks (see <see cref="TestSpawnDecision.FixtureCandidate"/>), because a def
+        /// without a mask is expected to draw fine and would prove nothing.
+        ///
+        /// Placement follows the pawn copies: the first player pawn's cell, else the map centre, else
+        /// an adjacent usable cell. Every failure is one `test: skip` line - never an exception, never
+        /// a load that stops.
+        /// </summary>
+        private static void SpawnFixture(object map, object playerFaction)
+        {
+            try
+            {
+                if (map == null) { Refl.Info(TestSpawnDecision.SkipLine("fixture: no map")); return; }
+
+                object def = FindFixtureDef(out string how);
+                if (def == null)
+                {
+                    Refl.Info(TestSpawnDecision.SkipLine("fixture: no def with " + TestSpawnDecision.RandomGraphicPrefix + " and a mask"));
+                    return;
+                }
+
+                Refl.Info("testspawn: fixture def=" + (StringOf(def, _fDefName, _pDefName) ?? "?") + " (" + how + ")");
+
+                object made = MakeThing(def, null);
+                if (made == null) { Refl.Info(TestSpawnDecision.SkipLine("fixture: MakeThing returned null")); return; }
+
+                object here = PawnCell(map, playerFaction) ?? CenterOf(map);
+                if (!PlanCell(here, map, out object target))
+                {
+                    Refl.Info(TestSpawnDecision.SkipLine("fixture: no placeable cell at " + CellText(here)));
+                    DestroyQuietly(made);
+                    return;
+                }
+
+                try
+                {
+                    if (!SpawnThing(made, target, map)) throw new Exception("GenSpawn.Spawn not resolvable");
+                }
+                catch (Exception e)
+                {
+                    Refl.Info(TestSpawnDecision.SkipLine("fixture: spawn failed: " + e.GetType().Name + " " + e.Message));
+                    DestroyQuietly(made);
+                    return;
+                }
+
+                Refl.Info(FixtureSnapshot(made, def));
+            }
+            catch (Exception e)
+            {
+                Refl.Info(TestSpawnDecision.SkipLine("fixture: " + e.GetType().Name + " " + e.Message));
+            }
+        }
+
+        /// <summary>
+        /// The preferred def by name, else the first def that satisfies the shape test. One pass: the
+        /// shape candidate is remembered while the rest of the database is still searched for the
+        /// name, so the preferred def wins wherever it sits in the list.
+        /// </summary>
+        private static object FindFixtureDef(out string how)
+        {
+            how = null;
+            object byShape = null;
+            string shapeClass = null, shapePath = null;
+            int scanned = 0;
+
+            foreach (object def in AllDefs())
+            {
+                scanned++;
+
+                string name = StringOf(def, _fDefName, _pDefName);
+                if (name == TestSpawnDecision.FixtureDefName)
+                {
+                    how = "by defName, " + scanned + " defs scanned";
+                    return def;
+                }
+
+                if (byShape != null) continue;   // the first shape match wins; keep looking only for the name
+
+                string cls = GraphicClassName(def);
+                if (cls == null) continue;
+
+                string path = TexPathOf(def);
+                if (!TestSpawnDecision.FixtureCandidate(cls, MaskExists(path))) continue;
+
+                byShape = def;
+                shapeClass = cls;
+                shapePath = path;
+            }
+
+            if (byShape != null)
+            {
+                how = "by shape " + shapeClass + " + mask at " + shapePath + ", " + scanned + " defs scanned";
+                return byShape;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Does the content index have a mask for this def's art? A Graphic_Random def builds its
+        /// variants as texPath + "A".."Z" (Verse.Graphic_Random.New), and a variant's mask is either
+        /// "&lt;variant&gt;_m" (Graphic_Single) or "&lt;variant&gt;_northm" (Graphic_Multi) - so those are what is
+        /// probed, with the same silent ContentFinder call the graphics use themselves. The
+        /// extension fallback already makes the ".png"-suffixed keys resolvable, so a mask that exists
+        /// on disk is found here too. Bounded: four probes per def, and the scan stops at the first hit.
+        /// </summary>
+        private static bool MaskExists(string texPath)
+        {
+            if (string.IsNullOrEmpty(texPath) || _finderGet == null) return false;
+
+            if (ContentTexture(texPath + "_m") != null) return true;
+            for (char c = 'A'; c <= 'C'; c++)      // three variants is evidence enough
+            {
+                if (ContentTexture(texPath + c + "_m") != null) return true;
+                if (ContentTexture(texPath + c + "_northm") != null) return true;
+            }
+            return false;
+        }
+
+        private static object ContentTexture(string path)
+        {
+            try { return _finderGet == null ? null : _finderGet.Invoke(null, new object[] { path, false }); }
+            catch { return null; }
+        }
+
+        private static IEnumerable<object> AllDefs()
+        {
+            return Enumerate(Read(null, _pAllDefs, null));
+        }
+
+        private static string GraphicClassName(object def)
+        {
+            object gd = _mGraphicDataDef == null ? null : _mGraphicDataDef.Get(def);
+            if (gd == null || _mGraphicClass == null) return null;
+            object t = _mGraphicClass.Get(gd);
+            return t is Type type ? type.Name : null;
+        }
+
+        private static string TexPathOf(object def)
+        {
+            object gd = _mGraphicDataDef == null ? null : _mGraphicDataDef.Get(def);
+            return gd == null || _mTexPathOfDef == null ? null : _mTexPathOfDef.Get(gd) as string;
+        }
+
+        /// <summary>How many variants the graphic really has - the "5, not 10" question.</summary>
+        private static int SubGraphics(object graphic)
+        {
+            if (graphic == null) return -1;
+            Type t = graphic.GetType();
+            if (!HasTypeNamed(t, "Graphic_Collection")) return -1;
+            object arr = Read(Field(t, "subGraphics"), Prop(t, "subGraphics"), graphic);
+            return arr is Array a ? a.Length : -1;
+        }
+
+        /// <summary>First player pawn's cell, or null when the map has none.</summary>
+        private static object PawnCell(object map, object playerFaction)
+        {
+            if (map == null || playerFaction == null) return null;
+            foreach (object thing in AllThings(map))
+            {
+                if (!IsPawn(thing)) continue;
+                if (!ReferenceEquals(FactionOf(thing), playerFaction)) continue;
+                object cell = CellOf(thing, thing);
+                if (cell != null) return cell;
+            }
+            return null;
+        }
+
+        private static object CenterOf(object map)
+        {
+            return map == null || _mCenter == null ? null : _mCenter.Get(map);
+        }
+
+        /// <summary>The same cell choice the pawn copies use: here, else a neighbour, else nothing.</summary>
+        private static bool PlanCell(object here, object map, out object target)
+        {
+            target = null;
+            if (here == null || map == null) return false;
+
+            bool hereUsable = Usable(here, map);
+            object neighbour = hereUsable ? null : FindNeighbour(here, map);
+            TestSpawnDecision.Placement placement = TestSpawnDecision.Choose(hereUsable, neighbour != null);
+            if (placement == TestSpawnDecision.Placement.None) return false;
+
+            target = placement == TestSpawnDecision.Placement.Here ? here : neighbour;
+            return true;
+        }
+
+        private static string FixtureSnapshot(object thing, object def)
+        {
+            object graphic = GraphicOf(thing);
+            object tex = TextureOf(graphic, thing);
+
+            int width = 0, height = 0;
+            if (tex != null)
+            {
+                Type tt = tex.GetType();
+                width = IntOf(Prop(tt, "width"), null, tex);
+                height = IntOf(Prop(tt, "height"), null, tex);
+            }
+
+            string uiIcon = UiIconName(def, out object icon);
+            bool same = TestSpawnDecision.Same(tex == null, icon == null, ReferenceEquals(tex, icon));
+
+            return TestSpawnDecision.FixtureLine(
+                StringOf(def, _fDefName, _pDefName),
+                IntOf(_pId, _fId, thing),
+                graphic == null ? null : graphic.GetType().Name,
+                NameOf(tex), width, height, uiIcon, same,
+                GraphicClassName(def), TexPathOf(def), SubGraphics(graphic));
+        }
 
         /// <summary>One line for one thing: what the draw path would actually use for it.</summary>
         private static string SnapshotLine(LineBuilder build, object thing)
@@ -825,6 +1053,35 @@ namespace AgentTouchFix
                 if (bad != null) _badTex = bad.GetValue(null);
             }
 
+            // ---- the fixture sample: def graphic data, the whole def list, and the content lookup
+            _mGraphicDataDef = _tDef == null ? null : Member.Resolve(_tDef, "graphicData", needWrite: false, preferField: true);
+            Type gdType = _mGraphicDataDef == null ? null : _mGraphicDataDef.ValueType;
+            if (gdType != null)
+            {
+                _mGraphicClass = Member.Resolve(gdType, "graphicClass", needWrite: false, preferField: true);
+                _mTexPathOfDef = Member.Resolve(gdType, "texPath", needWrite: false, preferField: true);
+            }
+            if (_tMap != null) _mCenter = Member.Resolve(_tMap, "Center", needWrite: false, preferField: false);
+
+            try
+            {
+                Type open = Refl.T("Verse.DefDatabase`1");
+                if (open != null && _tDef != null) _pAllDefs = Prop(open.MakeGenericType(_tDef), "AllDefs");
+            }
+            catch (Exception e) { WarnOnce("DefDatabase: " + e.Message); }
+
+            try
+            {
+                Type tex = Refl.T("UnityEngine.Texture2D") ?? Refl.T("Waylith.Rendering.Texture2D");
+                Type open = Refl.T("Verse.ContentFinder`1");
+                if (tex != null && open != null)
+                {
+                    _finderGet = open.MakeGenericType(tex).GetMethod("Get",
+                        BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string), typeof(bool) }, null);
+                }
+            }
+            catch (Exception e) { WarnOnce("ContentFinder: " + e.Message); }
+
             Refl.Info("testspawn: resolved thing=" + (_tThing != null) + " def=" + (_tDef != null)
                       + " pawn=" + (_tPawn != null) + " map=" + (_tMap != null)
                       + " maker=" + (_tThingMaker != null) + " genspawn=" + (_tGenSpawn != null)
@@ -833,6 +1090,8 @@ namespace AgentTouchFix
                       + " cell=" + (_cCell != null)
                       + " faction=" + (_tFaction == null ? "none" : _tFaction.Name)
                       + " ofplayer=" + (_mOfPlayer == null ? "none" : _mOfPlayer.Kind)
+                      + " alldefs=" + (_pAllDefs != null)
+                      + " maskprobe=" + (_finderGet != null)
                       + " badTex=" + (_badTex != null));
         }
 

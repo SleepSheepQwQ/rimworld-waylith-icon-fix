@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 
 namespace AgentTouchFix
@@ -113,6 +114,53 @@ namespace AgentTouchFix
         internal static string FallbackLine(string label, string from, string to)
         {
             return "test: fallback " + Cell(label) + " from=" + Cell(from) + " to=" + Cell(to);
+        }
+
+        // ------------------------------------------------------------------ the fixture sample
+
+        /// <summary>The unique revolver the report is about - present in Odyssey, absent from the
+        /// save that could not reproduce the bug.</summary>
+        internal const string FixtureDefName = "Gun_Revolver_Unique";
+
+        /// <summary>Random-variant graphics are the ones whose variants carry their own masks.</summary>
+        internal const string RandomGraphicPrefix = "Graphic_Random";
+
+        /// <summary>
+        /// Is this def a usable sample? It has to have both properties that make a tile draw blank in
+        /// this port: a graphic that picks a random variant (so several sub-graphics exist and the
+        /// count is worth printing) and a mask that the content index actually has. A def without a
+        /// mask would be expected to draw fine and would prove nothing.
+        /// </summary>
+        internal static bool FixtureCandidate(string graphicClass, bool maskFound)
+        {
+            if (!maskFound || string.IsNullOrEmpty(graphicClass)) return false;
+            return graphicClass.StartsWith(RandomGraphicPrefix, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// <c>test: fixture def=&lt;defName&gt; id=&lt;id&gt; graphic=&lt;type&gt; tex=&lt;name&gt;
+        /// size=WxH uiIcon=&lt;name|BadTex&gt; same=&lt;bool&gt; graphicClass=&lt;type&gt;
+        /// texPath=&lt;path&gt; subgraphics=&lt;n|-&gt;</c>
+        ///
+        /// The first eight fields match the origin/spawn lines, so the same grep finds all three; the
+        /// last three answer "how many variants does this def really have" (5 vs 10) without a second
+        /// log line. subgraphics is "-" when the graphic is not a Graphic_Collection.
+        /// </summary>
+        internal static string FixtureLine(string defName, int id, string graphicType, string texName,
+                                           int width, int height, string uiIcon, bool same,
+                                           string graphicClass, string texPath, int subGraphics)
+        {
+            return "test: fixture"
+                 + " def=" + Cell(defName)
+                 + " id=" + Int(id)
+                 + " graphic=" + Cell(graphicType)
+                 + " tex=" + Cell(texName)
+                 + " size=" + Size(width, height)
+                 + " uiIcon=" + Cell(uiIcon)
+                 + " same=" + (same ? "true" : "false")
+                 + " graphicClass=" + Cell(graphicClass)
+                 + " texPath=" + Cell(texPath)
+                 + " subgraphics=" + (subGraphics < 0 ? "-" : Int(subGraphics));
         }
 
         // ------------------------------------------------------------------ field rendering

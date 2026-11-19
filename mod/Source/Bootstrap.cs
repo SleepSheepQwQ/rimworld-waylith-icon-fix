@@ -45,7 +45,9 @@ namespace AgentTouchFix
                           + " + testspawn diagnostic: after a save loads, one copy of each held weapon"
                           + " is dropped at the pawn and both instances are logged"
                           + " + member lookup by shape: field-then-property, static-aware, both"
-                          + " GetIconFor material overloads, static GenGrid.Standable)");
+                          + " GetIconFor material overloads, static GenGrid.Standable"
+                          + " + fixture sample: one unique-weapon def spawned on every load"
+                          + " (by defName, else the first Graphic_Random def that has masks)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }
