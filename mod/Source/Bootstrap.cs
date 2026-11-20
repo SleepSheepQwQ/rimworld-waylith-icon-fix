@@ -34,6 +34,7 @@ namespace AgentTouchFix
                 ContentFallbackFix.Install();
                 CaseFix.Install();
                 ShadowFix.Install();
+                ShadowFix.Repair();
                 CollectionFix.Install();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
@@ -51,7 +52,8 @@ namespace AgentTouchFix
                           + " GetIconFor material overloads, static GenGrid.Standable"
                           + " + anyReloaded-gated case-insensitive texture fallback"
                           + " + shadowfix: a .dds that cannot be decoded no longer deletes the same-named"
-                          + " png/jpg/psd (148-byte header read, per-path mtime+length cache)");
+                          + " png/jpg/psd (148-byte header read, per-path mtime+length cache, content list"
+                          + " repaired after load and the loader prefix armed for reloads)");
             }
             catch (Exception e) { Refl.ErrOnce("bootstrap failed: " + e); }
         }

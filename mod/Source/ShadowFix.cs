@@ -38,12 +38,17 @@ namespace AgentTouchFix
     /// DDS keeps failing on its own - this module hides no defect, it only stops one file from hiding
     /// another.
     ///
-    /// Installation point matters: RimWorld queues StaticConstructorOnStartupUtility.CallAll() after
-    /// LoadAllActiveMods(), and this mod's Bootstrap is a static constructor, so patching there would be
-    /// too late for the content that is loaded at boot. The module initializer runs when the game loads
-    /// GlyphFix.dll (ModAssemblyHandler.ReloadAll, before any mod's textures are read); Bootstrap's
-    /// Install() call is then a no-op, and still a fallback if the early attempt could not reach
-    /// Harmony.
+    /// Installation point matters, and the measurement changed the design. RimWorld queues
+    /// StaticConstructorOnStartupUtility.CallAll() after LoadAllActiveMods(), and every mod's content
+    /// is read before that, so a static constructor is always too late for the content list. A
+    /// [ModuleInitializer] does not save it either: .NET runs module initializers on the first touch of
+    /// the module, and nothing touches GlyphFix until CallAll - CI run 44753371622 shows "shadowfix:
+    /// ... armed" 1 ms before "bootstrapping", with Shadow still hit=False. So the prefix is kept for
+    /// what it can still catch (a content reload, a mod whose textures are read after this one), and
+    /// the entry that actually repairs a boot is Repair(): after the content list exists, every key
+    /// whose texture is null/BadTex is checked against the disk, and the same-named image is loaded and
+    /// put back when the .dds beside it cannot be decoded. That is the same decision, applied one step
+    /// later, and it does not depend on load order at all.
     /// </summary>
     internal static class ShadowFix
     {
@@ -55,11 +60,12 @@ namespace AgentTouchFix
         private static readonly object _installLock = new object();
         private static readonly object _cacheLock = new object();
 
-        private static bool _installed, _ready;
+        private static bool _installed, _ready, _repaired;
         private static int _warned, _logged;
 
         private static MethodInfo _runningMods;
         private static FieldInfo _folders;
+        private static Type _packType;
 
         private static string[] _roots;
         private static int _rootStamp = int.MinValue;
@@ -123,6 +129,7 @@ namespace AgentTouchFix
                     _runningMods = running == null ? null : running.GetGetMethod();
                     _folders = pack.GetField("foldersToLoadDescendingOrder",
                                              BindingFlags.Public | BindingFlags.Instance);
+                    _packType = pack;
                     if (target == null || _runningMods == null || _folders == null)
                     {
                         Refl.Warn("shadowfix: ShadowedByDds / mod folders not reachable, skipped");
@@ -144,6 +151,148 @@ namespace AgentTouchFix
                     Refl.Warn("shadowfix: install failed: " + e.GetType().Name + ": " + e.Message);
                 }
             }
+        }
+
+        // ------------------------------------------------------------------ post-load repair
+
+        /// <summary>
+        /// Puts the image back into content lists that lost it to an undecodable .dds.
+        ///
+        /// Runs from Bootstrap (i.e. at StaticConstructorOnStartup time, after every mod's textures have
+        /// been read and before def graphics are built). For each running mod, each texture key whose
+        /// value is null or BaseContent.BadTex is a candidate: if a same-named png/jpg/psd exists on
+        /// disk and the .dds beside it cannot be decoded, the image is loaded through the game's own
+        /// ModContentLoader&lt;Texture2D&gt;.LoadTexture and stored under the key the lookup expects.
+        ///
+        /// Only those keys are touched. A key whose texture loaded fine is never visited, and a broken
+        /// .dds with no same-named image is left exactly as the loader made it - a miss.
+        /// </summary>
+        internal static void Repair()
+        {
+            if (!_ready) { WarnOnce("repair skipped: install did not complete"); return; }
+            if (_repaired) return;
+            _repaired = true;
+
+            try
+            {
+                var mods = _runningMods.Invoke(null, null) as IList;
+                if (mods == null) return;
+
+                Type tex = Refl.T("UnityEngine.Texture2D");
+                Type loader = Refl.T("Verse.ModContentLoader`1");
+                Type holder = Refl.T("Verse.ModContentHolder`1");
+                Type file = Refl.T("RimWorld.IO.FilesystemFile");
+                if (tex == null || loader == null || holder == null || file == null)
+                {
+                    WarnOnce("repair: types missing");
+                    return;
+                }
+
+                Type closedLoader = loader.MakeGenericType(tex);
+                MethodInfo getHolder = _packType.GetMethod("GetContentHolder");
+                FieldInfo listField = holder.MakeGenericType(tex).GetField("contentList");
+                MethodInfo loadTexture = Refl.M(closedLoader, "LoadTexture", 1);
+                ConstructorInfo fileCtor = file.GetConstructor(new[] { typeof(FileInfo) });
+                object badTex = ReadStatic("Verse.BaseContent", "BadTex");
+                if (getHolder == null || listField == null || loadTexture == null || fileCtor == null)
+                {
+                    WarnOnce("repair: content holder members not reachable");
+                    return;
+                }
+                getHolder = getHolder.MakeGenericMethod(tex);
+
+                int scanned = 0, rescued = 0;
+                for (int i = 0; i < mods.Count; i++)
+                {
+                    object pack = mods[i];
+                    object holderObj = getHolder.Invoke(pack, null);
+                    var list = holderObj == null ? null : listField.GetValue(holderObj) as IDictionary;
+                    if (list == null || list.Count == 0) continue;
+
+                    var folders = _folders.GetValue(pack) as List<string>;
+                    if (folders == null || folders.Count == 0) continue;
+
+                    var missing = new List<string>();
+                    foreach (DictionaryEntry entry in list)
+                    {
+                        string key = entry.Key as string;
+                        if (key == null) continue;
+                        scanned++;
+                        if (entry.Value == null || (badTex != null && ReferenceEquals(entry.Value, badTex)))
+                            missing.Add(key);
+                    }
+
+                    for (int k = 0; k < missing.Count; k++)
+                    {
+                        string key = missing[k];
+                        string image = FindInFolders(folders, key, ImageExtensions);
+                        if (image == null) continue;                    // a plain miss, nothing to restore
+
+                        string dds = FindInFolders(folders, key, DdsExtension);
+                        if (dds == null) continue;
+                        string why;
+                        if (Decodable(dds, out why)) continue;          // the .dds is fine; it failed for another reason
+
+                        object loaded = null;
+                        try
+                        {
+                            object virtualFile = fileCtor.Invoke(new object[] { new FileInfo(image) });
+                            loaded = loadTexture.Invoke(null, new object[] { virtualFile });
+                        }
+                        catch (Exception e)
+                        {
+                            WarnOnce("repair load " + image + ": " + e.GetType().Name + ": " + e.Message);
+                        }
+                        if (loaded == null) continue;
+
+                        list[key] = loaded;
+                        rescued++;
+                        Say("shadowfix: rescued '" + key + "' from '" + Path.GetFileName(image)
+                            + "' (dds unreadable: " + why + ")");
+                    }
+                }
+
+                Refl.Info("shadowfix: post-load repair done (texture keys scanned=" + scanned
+                          + ", rescued=" + rescued + ")");
+            }
+            catch (Exception e)
+            {
+                WarnOnce("repair: " + e.GetType().Name + ": " + e.Message);
+            }
+        }
+
+        private static readonly string[] DdsExtension = { ".dds" };
+
+        private static string FindInFolders(List<string> folders, string key, string[] extensions)
+        {
+            string rel = "Textures/" + key;
+            for (int i = folders.Count - 1; i >= 0; i--)
+            {
+                string folder = folders[i];
+                if (string.IsNullOrEmpty(folder)) continue;
+                for (int j = 0; j < extensions.Length; j++)
+                {
+                    try
+                    {
+                        string p = Path.Combine(folder,
+                            rel.Replace('/', Path.DirectorySeparatorChar) + extensions[j]);
+                        if (File.Exists(p)) return p;
+                    }
+                    catch { }
+                }
+            }
+            return null;
+        }
+
+        private static object ReadStatic(string typeName, string fieldName)
+        {
+            try
+            {
+                Type t = Refl.T(typeName);
+                FieldInfo f = t == null ? null : t.GetField(fieldName, BindingFlags.Public | BindingFlags.Static);
+                return f == null ? null : f.GetValue(null);
+            }
+            catch { return null; }
         }
 
         // ------------------------------------------------------------------ prefix
