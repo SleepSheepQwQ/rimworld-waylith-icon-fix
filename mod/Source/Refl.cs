@@ -28,6 +28,7 @@ namespace AgentTouchFix
         private static FileStream _fs;
         private static StreamWriter _w;
         private static long _written;
+        private static bool _console;
         private static int _errLogged;
 
         internal static void Info(string m) { Write("INFO", m); }
@@ -50,8 +51,15 @@ namespace AgentTouchFix
                 lock (_lock)
                 {
                     if (_w == null) Open();
-                    if (_w == null) return;
                     string line = DateTime.Now.ToString("HH:mm:ss.fff") + " " + level + " " + m;
+                    if (_w == null)
+                    {
+                        // The device log path does not exist off-device (CI, desktop harness). Silence is
+                        // right on the phone, but a run that cannot write its log must still be able to
+                        // say why a patch did not fire, so fall back to the process stderr.
+                        if (_console) Console.Error.WriteLine(P + line);
+                        return;
+                    }
                     _w.WriteLine(line);
                     _w.Flush();
                     _written += line.Length + 2;
@@ -71,7 +79,11 @@ namespace AgentTouchFix
                 _w = new StreamWriter(_fs, new UTF8Encoding(false));
                 _written = _fs.Length;
             }
-            catch { _w = null; }
+            catch
+            {
+                _w = null;
+                _console = true;
+            }
         }
 
         private static void Close()
