@@ -67,3 +67,24 @@ Two distinct failures, two distinct repairs, both measured on the objects the en
 A probe for the Multi half needs no `ThingDef`: `GraphicDatabase.Get<Graphic_Multi>(path, shader,
 Vector2.one, Color.white)` resolves purely from `texPath`, which makes the experiment independent of
 def XML.
+
+### 6. Three more root causes found by probing the real content path (`run 44736860452`)
+
+The probe ships loose fixtures through a mod and asks `ContentFinder<Texture2D>` for each, exactly the
+call `Graphic_*` makes. Results, all reproduced in one run:
+
+| fixture | result | cause |
+|---|---|---|
+| `Bc7.dds` | `hit=True 128x128 meanRGB=(12.2,12.2,12.2)` | normal |
+| `Bc5.dds` (DX10 header, DXGI 80) | `hit=True`, but `GetPixels32` throws `IndexOutOfRangeException` | `DdsPixelFormat.IsBc7` tests only `FourCC == 'DX10'` (808540228), so **every** DX10 file is uploaded as BC7 whatever it really holds; a BC5 mask becomes garbage |
+| `Dxt3.dds` | `hit=False` | `ToTextureFormat` knows only DXT1 / DXT5 / BC7 and throws for everything else; the loader then substitutes `BaseContent.BadTex` (or drops the entry) |
+| `Shadow.png` + `Shadow.dds` | `hit=False` | `ModContentLoader.ShadowedByDds` skips the PNG when a same-named `.dds` exists, so when the DDS cannot be decoded there is no fallback left |
+| `IbexMALE_east.png` vs key `IbexMale_east` | `True` / `False` | **the lookup is ordinal.** Core ships `IbexMALE_east.psd.dds.split` while `Races_Animal_*` asks for `<texPath>…/IbexMale</texPath>`; on Windows the file system hides this, on Android/Linux the male ibex loses its main texture and draws nothing, while `IbexFemale_*` (spelled consistently) renders |
+
+The engine itself supports BC4/BC5 - `Waylith.Graphics.Textures/DdsFile.cs` accepts "BC7, BC1, BC4,
+BC5" and `GpuTextureService` has `VkFormat.Bc5UNormBlock` - so #2/#3 are managed-layer mapping bugs,
+not renderer limits.
+
+Fixed in 2.6.5: the case-sensitive lookup (`CaseFix`, postfix on `ContentFinder<Texture2D>.Get` that
+retries misses through a lower-cased index). Not yet fixed: the DX10 format mapping and the
+png/dds shadowing - both need a decoder for the unstupported formats or a shadowing exception.
