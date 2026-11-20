@@ -117,3 +117,30 @@ three keys that exist only under a different spelling:
 No other mismatch exists in Core or the five DLCs, which is exactly why the symptom reads as "a few
 animals and items", not as a broken install - and why Windows, whose file system ignores case, never
 showed it. `CaseFix` (2.6.5) repairs all three through the same miss-only fallback.
+
+### 9. 15 of the 63 shaders `ShaderDatabase` asks for are not shipped
+
+Comparing every `LoadShader("…")` name in `Verse.ShaderDatabase` (63) against
+`Data/Core/Shaders/**` (229 `.glsl` files, case-sensitive, `.frag/.vert/.comp/.glsl`) leaves 15 names
+with no source **and** no `.spv-cache` entry in `Assets.zip`:
+
+```
+Map/CutoutFlying01          Misc/GrayscaleGUI            World/WorldOverlayAdditive
+Map/CutoutOverlay           Misc/Invisible               World/WorldOverlayAdditiveTwoSided
+Map/IndoorMaskMasked        Misc/Metalblood              World/WorldOverlayTransparent
+Map/MoteGlowDistorted       Misc/Silhouette              World/WorldOverlayTransparentLit
+Map/RitualStencil                                        World/WorldOverlayTransparentLitPollution
+Map/SolidColorBehind
+```
+
+`ShaderRegistry.Resolve` falls back to the default shader for every one of them, so content that asks
+for these draws with the wrong program rather than failing loudly. Two consequences already seen:
+
+* `Misc/GrayscaleGUI` - the disabled-command icon box (the "grey box with a black bar" beside Draft);
+  GlyphFix bypasses it by forcing `grayscale: false` on `Widgets.ThingIcon`.
+* `Map/MoteGlowDistorted` - used by 4 `<shaderType>` entries in the shipped XML; those motes draw
+  with the default shader.
+
+The remaining names are reached from code (world overlay layers, silhouette rendering, invisible
+draws), so a complete repair needs either the missing GLSL or a name-to-existing-shader mapping; the
+mod only patches the two paths that produce player-visible breakage.
