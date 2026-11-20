@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -73,7 +74,7 @@ namespace AgentTouchFix
         private const int MaxCache = 512;
         private const long MaxFileBytes = 32L * 1024 * 1024;
 
-        private static bool _ready, _off, _patched;
+        private static bool _ready, _off, _patched, _swept;
         private static int _attempts;
 
         private static Type _texType, _fmtType, _fsType;
@@ -201,6 +202,9 @@ namespace AgentTouchFix
                           + " <- " + target.ReturnType.Name + " via " + bound
                           + "; dxgi word honoured, bc4/bc5/dxt3 decoded to rgba32, full cpu mip chain,"
                           + " unhandled formats fall through to the original");
+
+                // The first pass over content this module was too late for (see SweepContent).
+                SweepContent();
             }
             catch (Exception e) { Refl.Warn("ddsalt: install failed: " + Short(e)); }
         }
@@ -266,46 +270,15 @@ namespace AgentTouchFix
                     return true;
                 }
 
-                // Header first: the common case (BC7, legacy DXT1/DXT5, plain RGB, BC6H) is decided
-                // from 148 bytes and the file is never read again. That matters at startup, where
-                // every shipped .dds is asked for once and most of them are already right.
-                byte[] head = ReadHeader(path);
+                byte[] all;
                 AltHeader h;
-                if (head == null || !DdsAltFormat.TryParse(head, head.Length, out h) || !h.Valid)
+                AltChoice choice;
+                if (!Analyse(path, out all, out h, out choice))
                 {
-                    Note("skip '" + Leaf(path) + "': header not understood");
-                    return false;
-                }
-
-                if (h.Codec != AltCodec.Bc1 && DdsAltFormat.Decide(h, false, true).Plan == AltPlan.Skip)
-                {
-                    Note("skip '" + Leaf(path) + "' " + DdsAltFormat.Describe(h)
-                         + " -> " + DdsAltFormat.Decide(h, false, true).Why);
-                    return false;
-                }
-
-                byte[] all = ReadAll(path);
-                if (all == null) { _declined++; return false; }
-                if (!DdsAltFormat.TryParse(all, all.Length, out h) || !h.Valid)
-                {
-                    Note("skip '" + Leaf(path) + "': header not understood");
-                    return false;
-                }
-
-                bool punchThrough = h.Codec == AltCodec.Bc1
-                                    && DdsAltFormat.Bc1PunchThrough(all, h.DataOffset,
-                                                                    h.Width, h.Height,
-                                                                    Math.Max(1, h.MipCount));
-
-                string native = DdsAltFormat.NativeName(h.Codec);
-                bool nativeUsable = DdsAltFormat.NativeCandidate(h) && native != null
-                                    && NativeUsable(native, DdsAltFormat.BlockBytes(h.Codec));
-
-                AltChoice choice = DdsAltFormat.Decide(h, punchThrough, nativeUsable);
-                if (choice.Plan == AltPlan.Skip)
-                {
-                    Note("skip '" + Leaf(path) + "' " + DdsAltFormat.Describe(h)
-                         + " -> " + choice.Why);
+                    Note("skip '" + Leaf(path) + "'"
+                         + (h.Valid ? " " + DdsAltFormat.Describe(h) : "")
+                         + " -> " + (choice.Why ?? "skipped"));
+                    if (all == null) _declined++;
                     return false;
                 }
 
@@ -333,6 +306,172 @@ namespace AgentTouchFix
                 WarnOnce("prefix: " + Short(e));
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Header first, body only when it can change the answer: the common case (BC7, a legacy
+        /// DXT1/DXT5 with a complete chain, plain RGB, BC6H) is decided from 148 bytes and the file is
+        /// never read again. That matters at startup, where every shipped .dds is asked for once.
+        ///
+        /// Returns false for "let the loader run"; <paramref name="choice"/> then carries the reason
+        /// and <paramref name="body"/> is null when the file was never read in full.
+        /// </summary>
+        private static bool Analyse(string path, out byte[] body, out AltHeader h, out AltChoice choice)
+        {
+            body = null;
+            choice = default(AltChoice);
+
+            byte[] head = ReadHeader(path);
+            if (head == null || !DdsAltFormat.TryParse(head, head.Length, out h) || !h.Valid)
+            {
+                choice.Why = "header not understood";
+                return false;
+            }
+
+            // BC1 is the one codec whose *blocks* change the decision (punch-through alpha), so it
+            // cannot be settled from the header.
+            if (h.Codec != AltCodec.Bc1 && DdsAltFormat.Decide(h, false, true).Plan == AltPlan.Skip)
+            {
+                choice = DdsAltFormat.Decide(h, false, true);
+                return false;
+            }
+
+            byte[] all = ReadAll(path);
+            if (all == null) { choice.Why = "unreadable"; return false; }
+            if (!DdsAltFormat.TryParse(all, all.Length, out h) || !h.Valid)
+            {
+                choice.Why = "header not understood";
+                return false;
+            }
+
+            bool punchThrough = h.Codec == AltCodec.Bc1
+                                && DdsAltFormat.Bc1PunchThrough(all, h.DataOffset, h.Width, h.Height,
+                                                                Math.Max(1, h.MipCount));
+            string native = DdsAltFormat.NativeName(h.Codec);
+            bool nativeUsable = DdsAltFormat.NativeCandidate(h) && native != null
+                                && NativeUsable(native, DdsAltFormat.BlockBytes(h.Codec));
+
+            choice = DdsAltFormat.Decide(h, punchThrough, nativeUsable);
+            body = all;
+            return choice.Plan != AltPlan.Skip;
+        }
+
+        // ------------------------------------------------------------------ the first pass
+
+        /// <summary>
+        /// One pass over content that was loaded before this module could run.
+        ///
+        /// Measured in CI (run 44753193398): this port parses Defs - and therefore resolves every
+        /// texture - before any mod's static constructor runs (the DXT3 exception is logged at
+        /// ThingDef.PostLoad time, a second before "AgentTouchFix ... bootstrapping"). A loader-side
+        /// prefix installed at that point would never see the first pass, and a file whose load threw
+        /// is simply absent from the holder, so nothing retries it.
+        ///
+        /// ModContentHolder&lt;T&gt;.contentList is what ContentFinder reads, so the files whose header says
+        /// "wrong" are handed back to ModContentLoader&lt;T&gt;.LoadItem - which reaches
+        /// ModDdsLoader.TryLoadDds again, i.e. the same prefix - and the result replaces the entry or
+        /// fills the hole. Everything the header calls already right is never touched.
+        /// </summary>
+        private static void SweepContent()
+        {
+            if (_swept) return;
+            _swept = true;
+            try
+            {
+                Type lmm = Refl.T("Verse.LoadedModManager");
+                Member running = Member.Resolve(lmm, "RunningModsListForReading", false, false);
+                IList mods = running == null ? null : running.Get(null) as IList;
+                if (mods == null) { WarnOnce("sweep: LoadedModManager.RunningModsListForReading unavailable"); return; }
+
+                Type packType = Refl.T("Verse.ModContentPack");
+                Type loaderType = Refl.T("Verse.ModContentLoader`1");
+                Type vfType = Refl.T("Verse.VirtualFile");
+                if (packType == null || loaderType == null || vfType == null || _texType == null || _fsType == null)
+                {
+                    WarnOnce("sweep: content types missing");
+                    return;
+                }
+
+                MethodInfo getHolder = packType.GetMethod("GetContentHolder",
+                    BindingFlags.Public | BindingFlags.Instance);
+                MethodInfo loadItem = loaderType.MakeGenericType(_texType)
+                    .GetMethod("LoadItem", new[] { vfType });
+                ConstructorInfo fileCtor = _fsType.GetConstructor(new[] { typeof(FileInfo) });
+                if (getHolder == null || loadItem == null || fileCtor == null)
+                {
+                    WarnOnce("sweep: shapes unavailable (holder=" + (getHolder != null)
+                             + " loadItem=" + (loadItem != null) + " fileCtor=" + (fileCtor != null) + ")");
+                    return;
+                }
+
+                int scanned = 0, replaced = 0;
+                for (int i = 0; i < mods.Count; i++)
+                {
+                    object mod = mods[i];
+                    if (mod == null) continue;
+
+                    object holder = null;
+                    try { holder = getHolder.MakeGenericMethod(_texType).Invoke(mod, null); }
+                    catch (Exception e) { WarnOnce("sweep: holder for " + mod + ": " + Short(e)); }
+                    if (holder == null) continue;
+
+                    Member listMember = Member.Resolve(holder.GetType(), "contentList", false, true);
+                    IDictionary list = listMember == null ? null : listMember.Get(holder) as IDictionary;
+                    if (list == null) continue;
+
+                    Member trieMember = Member.Resolve(holder.GetType(), "contentListTrie", false, true);
+                    object trie = trieMember == null ? null : trieMember.Get(holder);
+                    MethodInfo trieAdd = trie == null ? null : trie.GetType().GetMethod("Add", new[] { typeof(string) });
+
+                    Member rootMember = Member.Resolve(mod.GetType(), "rootDirInt", false, true);
+                    DirectoryInfo root = rootMember == null ? null : rootMember.Get(mod) as DirectoryInfo;
+                    if (root == null || !root.Exists) continue;
+                    string textures = Path.Combine(root.FullName, "Textures");
+                    if (!Directory.Exists(textures)) continue;
+
+                    foreach (string path in EnumerateDds(textures))
+                    {
+                        scanned++;
+                        string rel = path.Substring(textures.Length).TrimStart('/', '\\').Replace('\\', '/');
+                        if (rel.Length <= 4) continue;
+                        string key = rel.Substring(0, rel.Length - 4);
+
+                        byte[] body;
+                        AltHeader h;
+                        AltChoice choice;
+                        if (!Analyse(path, out body, out h, out choice)) continue;
+
+                        object item;
+                        try { item = loadItem.Invoke(null, new[] { fileCtor.Invoke(new object[] { new FileInfo(path) }) }); }
+                        catch (Exception e) { WarnOnce("sweep: load " + rel + ": " + Short(e)); continue; }
+                        if (item == null) continue;
+
+                        Member contentMember = Member.Resolve(item.GetType(), "contentItem", false, true);
+                        object content = contentMember == null ? null : contentMember.Get(item);
+                        if (content == null) continue;
+
+                        list[key] = content;
+                        if (trieAdd != null) { try { trieAdd.Invoke(trie, new object[] { key }); } catch { } }
+                        replaced++;
+                    }
+                }
+
+                if (replaced > 0 || scanned > 0)
+                    Refl.Info("ddsalt: first pass swept " + scanned + " loose .dds, replaced " + replaced
+                              + " content entr" + (replaced == 1 ? "y" : "ies"));
+            }
+            catch (Exception e) { WarnOnce("sweep: " + Short(e)); }
+        }
+
+        private static List<string> EnumerateDds(string root)
+        {
+            var list = new List<string>();
+            foreach (string pattern in new[] { "*.dds", "*.DDS" })
+            {
+                try { list.AddRange(Directory.GetFiles(root, pattern, SearchOption.AllDirectories)); }
+                catch (Exception e) { WarnOnce("scan " + root + ": " + Short(e)); }
+            }
+            return list;
         }
 
         // ------------------------------------------------------------------ build
