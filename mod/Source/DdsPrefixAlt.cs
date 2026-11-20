@@ -2,11 +2,34 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Verse;
 
 namespace AgentTouchFix
 {
+    /// <summary>
+    /// The earliest managed hook a mod assembly gets, and the one this module needs.
+    ///
+    /// Measured in CI (run 44753193398): this port resolves Def graphics while the Defs are being
+    /// loaded - ThingDef.PostLoad -> Graphic -> ContentFinder -> ModContentLoader.LoadItem ->
+    /// ModDdsLoader.TryLoadDds - and that happens BEFORE any mod's StaticConstructorOnStartup runs
+    /// (the log shows "Unsupported compressed DDS texture format: 33545844" at 14:25:44 and the mod's
+    /// own "bootstrapping" line at 14:25:44.995). A prefix installed from a static constructor
+    /// therefore only ever sees textures loaded after the first pass, i.e. nothing.
+    ///
+    /// [ModuleInitializer] runs when the assembly is loaded, which is before Def parsing, so the patch
+    /// is in place for that first pass. Install() is idempotent and retry-able: if some type it needs
+    /// is not loaded yet, the StaticConstructorOnStartup attempt at the end of startup tries again.
+    /// </summary>
+    internal static class DdsPrefixAltEarly
+    {
+        [ModuleInitializer]
+        internal static void Init()
+        {
+            try { DdsPrefixAlt.Install(); } catch { }
+        }
+    }
     /// <summary>
     /// Repairs loose mod DDS textures one level below ContentFinder: a prefix on
     /// Verse.ModDdsLoader.TryLoadDds(VirtualFile).
@@ -50,7 +73,8 @@ namespace AgentTouchFix
         private const int MaxCache = 512;
         private const long MaxFileBytes = 32L * 1024 * 1024;
 
-        private static bool _tried, _ready, _off;
+        private static bool _ready, _off, _patched;
+        private static int _attempts;
 
         private static Type _texType, _fmtType, _fsType;
         private static ConstructorInfo _ctor;
@@ -78,8 +102,9 @@ namespace AgentTouchFix
 
         internal static void Install()
         {
-            if (_tried) return;
-            _tried = true;
+            if (_ready || _off) return;
+            if (_attempts >= 4) return;   // the early attempt may run before every type is loaded
+            _attempts++;
             try
             {
                 _off = !SwitchOn(ReadSwitch());
@@ -93,7 +118,8 @@ namespace AgentTouchFix
 
                 if (mod == null || _fmtType == null || _texType == null)
                 {
-                    Refl.Warn("ddsalt: Verse.ModDdsLoader / UnityEngine.Texture2D missing, skipped");
+                    Refl.Warn("ddsalt: Verse.ModDdsLoader / UnityEngine.Texture2D not loaded yet (attempt "
+                              + _attempts + "), the static-ctor attempt retries");
                     return;
                 }
 
@@ -151,19 +177,23 @@ namespace AgentTouchFix
                          ?? Member.Resolve(_fsType, "Name", false, true);
 
                 string bound = "named";
-                try
+                if (!_patched)
                 {
-                    harmony.Patch(target, prefix: new HarmonyMethod(
-                        named.MakeGenericMethod(fileType, target.ReturnType)));
-                }
-                catch (Exception e)
-                {
-                    // Harmony binds a prefix parameter by name; a port that renames `file` would make
-                    // the named form unbindable. __args only needs the argument array.
-                    Refl.Info("ddsalt: named prefix refused (" + Short(e) + "), binding through __args");
-                    bound = "args";
-                    harmony.Patch(target, prefix: new HarmonyMethod(
-                        byArgs.MakeGenericMethod(target.ReturnType)));
+                    try
+                    {
+                        harmony.Patch(target, prefix: new HarmonyMethod(
+                            named.MakeGenericMethod(fileType, target.ReturnType)));
+                    }
+                    catch (Exception e)
+                    {
+                        // Harmony binds a prefix parameter by name; a port that renames `file` would
+                        // make the named form unbindable. __args only needs the argument array.
+                        Refl.Info("ddsalt: named prefix refused (" + Short(e) + "), binding through __args");
+                        bound = "args";
+                        harmony.Patch(target, prefix: new HarmonyMethod(
+                            byArgs.MakeGenericMethod(target.ReturnType)));
+                    }
+                    _patched = true;
                 }
 
                 _ready = true;
@@ -236,10 +266,26 @@ namespace AgentTouchFix
                     return true;
                 }
 
+                // Header first: the common case (BC7, legacy DXT1/DXT5, plain RGB, BC6H) is decided
+                // from 148 bytes and the file is never read again. That matters at startup, where
+                // every shipped .dds is asked for once and most of them are already right.
+                byte[] head = ReadHeader(path);
+                AltHeader h;
+                if (head == null || !DdsAltFormat.TryParse(head, head.Length, out h) || !h.Valid)
+                {
+                    Note("skip '" + Leaf(path) + "': header not understood");
+                    return false;
+                }
+
+                if (h.Codec != AltCodec.Bc1 && DdsAltFormat.Decide(h, false, true).Plan == AltPlan.Skip)
+                {
+                    Note("skip '" + Leaf(path) + "' " + DdsAltFormat.Describe(h)
+                         + " -> " + DdsAltFormat.Decide(h, false, true).Why);
+                    return false;
+                }
+
                 byte[] all = ReadAll(path);
                 if (all == null) { _declined++; return false; }
-
-                AltHeader h;
                 if (!DdsAltFormat.TryParse(all, all.Length, out h) || !h.Valid)
                 {
                     Note("skip '" + Leaf(path) + "': header not understood");
@@ -440,6 +486,31 @@ namespace AgentTouchFix
         }
 
         // ------------------------------------------------------------------ io / misc
+
+        /// <summary>The fixed header plus the DX10 extension - enough to decide, never the whole file.</summary>
+        private static byte[] ReadHeader(string path)
+        {
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    var buf = new byte[DdsAltFormat.Dx10HeaderBytes];
+                    int at = 0;
+                    while (at < buf.Length)
+                    {
+                        int n = fs.Read(buf, at, buf.Length - at);
+                        if (n <= 0) break;
+                        at += n;
+                    }
+                    if (at < DdsAltFormat.HeaderBytes) return null;
+                    if (at == buf.Length) return buf;
+                    var cut = new byte[at];
+                    Array.Copy(buf, cut, at);
+                    return cut;
+                }
+            }
+            catch (Exception e) { WarnOnce("header " + path + ": " + Short(e)); return null; }
+        }
 
         private static byte[] ReadAll(string path)
         {
