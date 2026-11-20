@@ -115,7 +115,9 @@ namespace AgentTouchFix
                 _fmtType = Refl.T("UnityEngine.TextureFormat");
                 _texType = Refl.T("UnityEngine.Texture2D");
                 Type filterType = Refl.T("UnityEngine.FilterMode");
-                _fsType = Refl.T("Verse.FilesystemFile");
+                // RimWorld.IO, not Verse: the port keeps VirtualFile/FilesystemFile there
+                // (verified in Assembly-CSharp metadata: namespace RimWorld.IO).
+                _fsType = Refl.T("RimWorld.IO.FilesystemFile") ?? Refl.T("Verse.FilesystemFile");
 
                 if (mod == null || _fmtType == null || _texType == null)
                 {
@@ -200,6 +202,8 @@ namespace AgentTouchFix
                 _ready = true;
                 Refl.Info("ddsalt: armed - prefix on " + mod.Name + ".TryLoadDds(" + fileType.Name + ")"
                           + " <- " + target.ReturnType.Name + " via " + bound
+                          + ", file type " + (_fsType == null ? "?" : _fsType.FullName)
+                          + ", path member " + (_mPath == null ? "?" : _mPath.DeclaringTypeName + "." + _mPath.Kind)
                           + "; dxgi word honoured, bc4/bc5/dxt3 decoded to rgba32, full cpu mip chain,"
                           + " unhandled formats fall through to the original");
 
@@ -257,7 +261,14 @@ namespace AgentTouchFix
             {
                 // ModDdsLoader only supports FilesystemFile (it throws NotSupportedException otherwise).
                 // Anything else is let through so the original behaviour, error included, is unchanged.
-                if (_fsType == null || !_fsType.IsInstanceOfType(file)) { _declined++; return false; }
+                if (_fsType == null || !_fsType.IsInstanceOfType(file))
+                {
+                    if (_fsType == null) WarnOnce("not a " + file.GetType().FullName
+                                                  + " and FilesystemFile type unknown: passing through");
+                    else WarnOnce("declining " + file.GetType().FullName + " (not a FilesystemFile)");
+                    _declined++;
+                    return false;
+                }
 
                 string path = _mPath == null ? null : _mPath.Get(file) as string;
                 if (string.IsNullOrEmpty(path)) { _declined++; return false; }
@@ -386,17 +397,19 @@ namespace AgentTouchFix
 
                 Type packType = Refl.T("Verse.ModContentPack");
                 Type loaderType = Refl.T("Verse.ModContentLoader`1");
-                Type vfType = Refl.T("Verse.VirtualFile");
-                if (packType == null || loaderType == null || vfType == null || _texType == null || _fsType == null)
+                if (packType == null || loaderType == null || _texType == null || _fsType == null)
                 {
-                    WarnOnce("sweep: content types missing");
+                    WarnOnce("sweep: content types missing (pack=" + (packType != null)
+                             + " loader=" + (loaderType != null) + " tex=" + (_texType != null)
+                             + " fs=" + (_fsType != null) + ")");
                     return;
                 }
 
                 MethodInfo getHolder = packType.GetMethod("GetContentHolder",
                     BindingFlags.Public | BindingFlags.Instance);
                 MethodInfo loadItem = loaderType.MakeGenericType(_texType)
-                    .GetMethod("LoadItem", new[] { vfType });
+                    .GetMethod("LoadItem", BindingFlags.Public | BindingFlags.Static);
+                if (loadItem != null && loadItem.GetParameters().Length != 1) loadItem = null;
                 ConstructorInfo fileCtor = _fsType.GetConstructor(new[] { typeof(FileInfo) });
                 if (getHolder == null || loadItem == null || fileCtor == null)
                 {
