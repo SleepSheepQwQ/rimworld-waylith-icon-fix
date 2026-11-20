@@ -32,12 +32,13 @@ namespace AgentTouchFix
                 IconFieldFix.Install();
                 UvFix.Init();
                 ContentFallbackFix.Install();
+                CaseFix.Install();
                 CollectionFix.Install();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
                 TestSpawn.Install();
 
-                Refl.Info("BUILD 2.6.3 iconfallback"
+                Refl.Info("BUILD 2.6.5 iconfallback"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
                           + " + collection variant mask filter"
