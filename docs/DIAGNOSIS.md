@@ -101,3 +101,19 @@ with GlyphFix    : IbexMale_east hit=True name='IbexMALE_east'  meanRGB=(13.0,12
 The returned texture is the file that actually exists, with the same pixels as the correctly-spelled
 sibling — i.e. the miss is repaired by the lower-cased fallback, not by a placeholder. In the same run
 the two earlier gates stayed green (`fresh variants 10/5 -> 5/0`, `multi 0/4 -> 4/4`).
+
+### 8. How far the case bug reaches: exactly three defs in the shipped content
+
+Cross-checking every `texPath` in `Data/*/Defs` (2709 entries, including `<bodyGraphicData>` and
+`<dessicatedBodyGraphicData>`) against the 3418 texture keys of the six packs, case-sensitively, leaves
+three keys that exist only under a different spelling:
+
+| def asks for | the pack has | what the player sees |
+|---|---|---|
+| `Things/Pawn/Animal/Ibex/IbexMale_east` | `IbexMALE_east` | the male ibex draws nothing |
+| `Things/Item/Equipment/WeaponMelee/LongSword` | `Longsword` | the long sword has no texture |
+| `Things/Projectile/Bullet_big` | `Bullet_Big` | that projectile has no texture |
+
+No other mismatch exists in Core or the five DLCs, which is exactly why the symptom reads as "a few
+animals and items", not as a broken install - and why Windows, whose file system ignores case, never
+showed it. `CaseFix` (2.6.5) repairs all three through the same miss-only fallback.
