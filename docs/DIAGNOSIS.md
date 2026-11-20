@@ -181,3 +181,23 @@ deferred-loading window where textures are metadata-only.
   DXT3/BC4/BC5/BC6H in the wild, so the format-mapping bugs are traps rather than everyday breakage.
 * `LoadFolders.xml` truncation of the implicit root/`Common` scan: 0 hits in 41 sampled manifests.
 * Case-only mismatches in 15 small repos: 0 - the three live mismatches are in the shipped Core data.
+
+### 12. The atlas hole, proven one way only (branch `atlasfix`, run 44756452119)
+
+`StaticTextureAtlas.Bake` registers a tile before it blits, and a failed blit only calls
+`StubWarner.LogStub`. A GPU-free probe on the shipped assemblies measures both halves:
+
+| | textures | tiles | dead texture in `tiles` | `TryGetTextureAtlasReplacementInfo` |
+|---|---|---|---|---|
+| unpatched | 2 | 2 | **true** | **true**, mainTexture = `TextureAtlas_Misc_False_-4` |
+| patched | 0 | 0 | false | false (source texture kept) |
+
+The patch is a `Priority.Low` postfix on `Bake(bool)` that re-checks the same predicate the blit gates
+on (`EnsureGpuResident()`, with one `FinishPendingBuild()` retry), unregisters the tiles that fail,
+nulls the page cache keys and clears `Graphic.replacementInfoCache`.
+
+**What is not proven:** the positive control - that healthy textures still end up in the atlas. The GPU
+job reaches `Glfw.Init()` but dies in `Brutal.VulkanApi.Vulkan`'s type initializer because the port's
+`libvulkanshim.so` is arm64-only. Until a device run shows healthy tiles surviving, the module stays on
+branch `atlasfix` and out of the released zip; its failure mode is safe (dropping a tile only costs
+draw calls) but unmeasured, and this mod does not ship unmeasured performance changes.
