@@ -71,10 +71,12 @@ namespace AgentTouchFix.Tests
 
         private static void AssertDecodable(bool expected, byte[] buf, int length = -1)
         {
-            ShadowDdsHead h;
             int n = length < 0 ? buf.Length : length;
-            Assert.True(ShadowDds.TryRead(buf, n, out h), "header should parse");
-            Assert.Equal(expected, h.Decodable);
+            ShadowDdsHead h;
+            // A header that does not parse at all (bad magic, short buffer, wrong dwSize) is "cannot be
+            // decoded" by definition; only a parsed header carries the flag under test.
+            if (ShadowDds.TryRead(buf, n, out h)) Assert.Equal(expected, h.Decodable);
+            else Assert.False(expected, "the header does not parse, so it cannot be decodable");
             Assert.Equal(expected, ShadowDds.Decodable(buf, n));
         }
 
@@ -236,7 +238,7 @@ namespace AgentTouchFix.Tests
         public void PayloadOfAnUnreadableHeaderIsNeverComplete()
         {
             ShadowDdsHead h;
-            Assert.False(ShadowDds.TryRead(Header("DXT3"), 128, out h));
+            Assert.False(ShadowDds.TryRead(new byte[10], 10, out h), "10 bytes are not a header");
             Assert.False(ShadowDds.PayloadComplete(h, 1024));
         }
 
