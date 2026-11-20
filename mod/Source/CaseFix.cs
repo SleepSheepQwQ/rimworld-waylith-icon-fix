@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
-using UnityEngine;
 
 namespace AgentTouchFix
 {
@@ -69,7 +68,9 @@ namespace AgentTouchFix
                     return;
                 }
 
-                MethodInfo postfix = typeof(CaseFix).GetMethod(nameof(AfterGet), BindingFlags.Static | BindingFlags.NonPublic);
+                MethodInfo postfix = typeof(CaseFix)
+                    .GetMethod(nameof(AfterGet), BindingFlags.Static | BindingFlags.NonPublic)
+                    .MakeGenericMethod(tex);
                 new Harmony("sleepsheep.waylith.agenttouchfix.case")
                     .Patch(_get, postfix: new HarmonyMethod(postfix));
                 Refl.Info("casefix: case-insensitive miss fallback armed");
@@ -81,7 +82,7 @@ namespace AgentTouchFix
         }
 
         /// <summary>Runs only when the ordinary lookup produced nothing.</summary>
-        private static void AfterGet(string itemPath, ref Texture2D __result)
+        private static void AfterGet<T>(string itemPath, ref T __result) where T : class
         {
             try
             {
@@ -97,7 +98,7 @@ namespace AgentTouchFix
                 if (!_index.TryGetValue(itemPath, out hit)) return;
 
                 object value = _holderGet.Invoke(hit.Key, new object[] { hit.Value });
-                Texture2D tex = value as Texture2D;
+                T tex = value as T;
                 if (tex == null) return;
 
                 __result = tex;
