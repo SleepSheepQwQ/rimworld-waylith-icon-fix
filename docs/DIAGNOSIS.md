@@ -1,47 +1,47 @@
-# Blank icon: what is proven, what is excluded
 
-All numbers below come from CI harnesses that run **without the game**: real shipped DLLs,
-real DDS assets, the real GLSL shaders, and a CPU/Vulkan rasteriser. Every claim has a run id.
+## 2026-11-20 — runtime verification of the mask-variant fix (all in CI, no device)
 
-## 1. Excluded (measured, not reasoned)
+### 1. The extension-leak layout reproduces the reported symptom exactly
 
-| Hypothesis | Verdict | Evidence |
-|---|---|---|
-| Names/keys keep the inner extension (`UniqueRevolverA.png`) | **false on this build** | the shipped `Graphic_Collection` predicate run on the real DLL: 5 variants kept, 5 masks filtered |
-| Masks leak into the variant list | **false on this build** | same predicate + `iconflow` 44554868087 / `iconflow-b` 44556920217: 5 variants, 0/1000 mask hits |
-| A missing mask makes the icon blank | **false** | `iconpipe` 44553128606 and `iconpipe-cpu` 44552170772: null mask is byte-identical to passthrough (max channel delta 0) |
-| Missing mips make it blank | **false** | Odyssey ships 128/128 complete chains; Core's 968 mip0-only textures are completed at upload by `CompletedChainTextureSource` |
-| Texture eviction produces a grey box | **false** | 48-state truth table (`residency` 44559298798): eviction is not a state; grey placeholder needs a failed `TryResolveTexture`, whose fallback is white/black, not grey |
-| `uiIcon` is a property | **false** | `uiIcon` is a public instance field on `Verse.BuildableDef`; the earlier "not found" was a lookup bug in our own probe |
-| Carried-item rendering path | out of scope | the reported case is a UI icon, not the world sprite |
+`run 44665671369` (private repo, real host, real map, `Widgets.GetIconFor`). A generated mod ships
+`UniqueRevolverA..E.png.png` / `A..E_m.png.png`, so the asset name keeps `.png`:
 
-## 2. Mechanisms that DO produce a blank icon (each with a fingerprint)
+| | value |
+|---|---|
+| variants | **10** (5 art + 5 masks) |
+| ids 0,2,4,6,8 | `UniqueRevolver*_m.png` — coverage **100 %**, meanRGB ≈ (6,0,0), edge structure 0.24–0.31 |
+| ids 1,3,5,7,9 | `UniqueRevolver*.png` — coverage 12.9–15.0 %, structure 11.4–12.1 |
 
-| # | Mechanism | Fingerprint | Harness |
-|---|---|---|---|
-A | **Extension leak build**: names keep `.png`, masks become variants | 10 variants, 50% of thing ids draw a BC4 mask: 100% coverage, mean RGB (6.4,0,0), luma 1.37/255 | `iconflow*`, `iconpipe*` |
-B | Same leak, animal case: direction group key loses the extension | a `Graphic_Multi` pointing at a path that does not exist; 50% of ids get a missing texture, not a mask | `iconflow-b` |
-C | Residency dead-ends: `CpuData == null`, or CPU data released with no source, or released+source+cache miss | never draws; 7 of 48 states are permanent (one of them throws `InvalidOperationException`) | `residency` |
-D | `PendingBuild` on a frame that cannot flush | blank for exactly one frame, recovers on the next | `residency` |
-E | `GetIconFor` returns null / `BadTex` | `Widgets.ThingIcon` returns before drawing anything | metadata + `docs/REFLECTION-FACTS.md` |
-F | Material key bloat: `shaderParameters` compared by reference | not a rendering bug: 30 materials for a 5x3x2 matrix, 66.7% redundant, and 60 if each request carries a fresh list | `matpool` 44561808570 |
+A mask painted as art is a nearly flat dark tile: that is the "blank" a player reports. Which items
+are hit is decided by `thingIDNumber % subGraphics.Length`, so **half the items, deterministically**.
 
-## 3. Decision procedure for a new report
+### 2. The coloured-clone path is not involved
 
-1. Ask for the **port build string** (or `startup-report.txt`). If it is older than the build that
-   strips the inner extension, mechanisms A/B apply and no amount of UI-side patching can fix them —
-   the content index itself has to be fixed.
-2. If the build is current, mechanisms A/B cannot fire. Then the remaining candidates are C/D/E,
-   and they are distinguishable from the log alone:
-   - `icon fallback: <def> via uiIcon|graphic` present  -> E was hit (our fallback did the work)
-   - `ImGui: cannot draw texture '<name>' (WxH, source ...): reason` -> C or D, the reason names the state
-   - neither line, and the icon is still empty -> the draw call never happened; look at the widget
-     path, not the texture
-3. Only if all three are silent is a device-side capture worth the cost (root `gcore` + analysis on a
-   glibc host, since this runtime has no diagnostics IPC).
+`run 44665329801`: forcing a non-white `DrawColor` on the same unique weapon (the real
+`CompUniqueWeapon` path) keeps `subGraphics = 5`, the same variant index and the same texture; the
+white and tinted icons are byte-identical (`SHA256 1729e91a…`). Tint lives in `material._Color`, never
+in pixels.
 
-## 4. What this means for GlyphFix
+### 3. GlyphFix's collection filter is now proven inside the engine
 
-The three shipped fixes (icon field repair, grayscale bypass, def-level icon fallback) all act on
-their stated causes and are harmless when those causes are absent. They cannot repair mechanism A/B,
-because that failure happens before any icon is requested: the texture path itself is wrong.
+`run 44669186310` — `modcheck` workflow: same host, same leak mod, one run without the mod and one
+with the released `GlyphFix.zip`:
+
+```
+control (no mod): fresh variants=10 masks=5
+with GlyphFix  : fresh variants=5  masks=0     names A..E, no _m
+```
+
+The gate reads `Graphic_Collection.subGraphics` from the object the engine built, so a no-op patch
+would show `10/5` in both runs and fail the job.
+
+### 4. Two harness traps worth remembering (they cost two dead ends here)
+
+* The headless harness never runs `[StaticConstructorOnStartup]`, so a Harmony mod stays inert. The
+  phone does run it (`grayfix: patched …` appears in its log). Emulate the ctor by reflection — and
+  then measure a **freshly built** `Graphic`, because every `ThingDef.graphicData.Graphic` was built
+  during content load, before the emulated ctor ran.
+* A hand-built subset of the **Core** pack cannot be exercised: the core pack mounts at `DataPath`,
+  so `Resources/Textures/...` is requested as `<DataPath>/Resources/Textures/...`, while the harness
+  gives Core the content root `run/Data/Core` (no `Textures/`). `ContentFinder` then returns 0 —
+  a harness artefact, not a defect. DLC packs (`Data/<Dlc>`, entries `Textures/...`) mount fine.
