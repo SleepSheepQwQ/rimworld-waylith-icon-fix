@@ -88,3 +88,16 @@ not renderer limits.
 Fixed in 2.6.5: the case-sensitive lookup (`CaseFix`, postfix on `ContentFinder<Texture2D>.Get` that
 retries misses through a lower-cased index). Not yet fixed: the DX10 format mapping and the
 png/dds shadowing - both need a decoder for the unstupported formats or a shadowing exception.
+
+### 7. 2.6.5 verified in-engine (`run 44738256380`)
+
+Same `modcheck` run, the case fixture only:
+
+```
+control (no mod) : IbexMale_east hit=False
+with GlyphFix    : IbexMale_east hit=True name='IbexMALE_east'  meanRGB=(13.0,12.9,13.0)
+```
+
+The returned texture is the file that actually exists, with the same pixels as the correctly-spelled
+sibling — i.e. the miss is repaired by the lower-cased fallback, not by a placeholder. In the same run
+the two earlier gates stayed green (`fresh variants 10/5 -> 5/0`, `multi 0/4 -> 4/4`).
