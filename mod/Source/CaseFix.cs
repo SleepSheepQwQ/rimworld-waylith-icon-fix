@@ -33,6 +33,7 @@ namespace AgentTouchFix
         private static MethodInfo _getContentHolder; // ModContentPack.GetContentHolder<Texture2D>()
         private static MethodInfo _holderGet;    // ModContentHolder<Texture2D>.Get(string)
         private static FieldInfo _contentList;   // ModContentHolder<Texture2D>.contentList
+        private static FieldInfo _anyReloaded;   // ModContentHolder<Texture2D>.anyReloaded (static bool)
         private static PropertyInfo _runningMods; // LoadedModManager.RunningModsListForReading
 
         private static Dictionary<string, KeyValuePair<object, string>> _index;
@@ -60,6 +61,8 @@ namespace AgentTouchFix
                 _getContentHolder = pack.GetMethod("GetContentHolder")?.MakeGenericMethod(tex);
                 _holderGet = closedHolder.GetMethod("Get", new[] { typeof(string) });
                 _contentList = closedHolder.GetField("contentList");
+                _anyReloaded = closedHolder.GetField("anyReloaded", BindingFlags.Public | BindingFlags.Static)
+                               ?? closedHolder.GetField("anyReloaded", BindingFlags.NonPublic | BindingFlags.Static);
                 _runningMods = lmm.GetProperty("RunningModsListForReading", BindingFlags.Public | BindingFlags.Static);
 
                 if (_get == null || _getContentHolder == null || _holderGet == null || _contentList == null || _runningMods == null)
@@ -73,7 +76,8 @@ namespace AgentTouchFix
                     .MakeGenericMethod(tex);
                 new Harmony("sleepsheep.waylith.agenttouchfix.case")
                     .Patch(_get, postfix: new HarmonyMethod(postfix));
-                Refl.Info("casefix: case-insensitive miss fallback armed");
+                Refl.Info("casefix: case-insensitive miss fallback armed"
+                          + (_anyReloaded == null ? " (anyReloaded field missing: gated on it anyway)" : " (gated on anyReloaded)"));
             }
             catch (Exception e)
             {
@@ -87,6 +91,13 @@ namespace AgentTouchFix
             try
             {
                 if (__result != null || string.IsNullOrEmpty(itemPath)) return;
+
+                // ContentFinder.Get only consults the mod holders once anyReloaded is set
+                // (ContentFinder`1.Get: `if (typeof(T) != typeof(Shader) && ModContentHolder<T>.anyReloaded)`),
+                // so before content loading finishes our index would describe a list that is still
+                // growing: every miss would rebuild it, i.e. O(n^2) over the whole load. Waiting for the
+                // same flag the engine waits for makes the miss path a no-op until it can be answered.
+                if (_anyReloaded == null || !(bool)_anyReloaded.GetValue(null)) return;
 
                 IList mods = _runningMods.GetValue(null, null) as IList;
                 if (mods == null) return;

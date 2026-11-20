@@ -12,7 +12,7 @@
     <Optimize>true</Optimize>
     <!-- the SDK would otherwise append +<git sha>, making builds irreproducible -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <Version>2.6.5</Version>
+    <Version>2.6.6</Version>
   </PropertyGroup>
 
   <ItemGroup>
