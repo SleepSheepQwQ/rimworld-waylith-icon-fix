@@ -319,6 +319,7 @@ namespace AgentTouchFix
         private static bool Analyse(string path, out byte[] body, out AltHeader h, out AltChoice choice)
         {
             body = null;
+            h = default(AltHeader);          // TryParse is short-circuited when the header is unreadable
             choice = default(AltChoice);
 
             byte[] head = ReadHeader(path);
