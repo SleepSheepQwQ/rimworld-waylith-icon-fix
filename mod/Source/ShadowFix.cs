@@ -83,7 +83,9 @@ namespace AgentTouchFix
         // ------------------------------------------------------------------ install
 
         /// <summary>Runs before any mod content is read (see the class comment).</summary>
+#pragma warning disable CA2255 // ModuleInitializer in a library: that is the whole point here
         [ModuleInitializer]
+#pragma warning restore CA2255
         internal static void EarlyInstall()
         {
             try { Install(); }
