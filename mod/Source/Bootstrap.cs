@@ -34,6 +34,7 @@ namespace AgentTouchFix
                 ContentFallbackFix.Install();
                 CaseFix.Install();
                 DdsFormatFix.Install();
+                ShadowFix.Install();
                 CollectionFix.Install();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
