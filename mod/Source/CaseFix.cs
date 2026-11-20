@@ -90,6 +90,13 @@ namespace AgentTouchFix
         {
             try
             {
+                // The DDS repair runs first and independently of the result: a BC5 file behind a DX10
+                // header comes back as a non-null BC7 texture with unreadable pixels, so "is the result
+                // null" is the wrong question for it. It returns true only when it actually replaced
+                // the value; this postfix is the only patch on ContentFinder<Texture2D>.Get (Harmony
+                // refuses a second one carrying `ref T __result`), which is why the entry lives here.
+                if (DdsFormatFix.TryRepair(itemPath, ref __result)) return;
+
                 if (__result != null || string.IsNullOrEmpty(itemPath)) return;
 
                 // ContentFinder.Get only consults the mod holders once anyReloaded is set

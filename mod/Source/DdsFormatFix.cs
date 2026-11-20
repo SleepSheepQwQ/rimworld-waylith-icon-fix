@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading;
-using HarmonyLib;
 
 namespace AgentTouchFix
 {
@@ -44,7 +43,6 @@ namespace AgentTouchFix
         internal const string SwitchPath =
             "/data/data/com.ports1de.waylith/files/game/agenttouchfix.dds";
 
-        private const string HarmonyId = "sleepsheep.waylith.agenttouchfix.ddsformat";
         private const int LogCap = 8;
         private const int MaxEntries = 8192;
         private const long MaxFileBytes = 96L * 1024 * 1024;
@@ -84,6 +82,9 @@ namespace AgentTouchFix
                     return;
                 }
 
+                // The lookup itself is patched once, by CaseFix (see TryRepair): Harmony refuses a
+                // second postfix with a `ref T __result` on the same method, so this module exposes an
+                // entry point that CaseFix's postfix calls first.
                 MethodInfo get = finder.MakeGenericType(_texType)
                     .GetMethod("Get", new[] { typeof(string), typeof(bool) });
                 _ctor = _texType.GetConstructor(new[]
@@ -120,13 +121,11 @@ namespace AgentTouchFix
                 bool nativeBc5 = ProbeNative("BC5");
                 _nativeBc5 = nativeBc5;
 
-                MethodInfo postfix = typeof(DdsFormatFix)
-                    .GetMethod(nameof(AfterGet), BindingFlags.Static | BindingFlags.NonPublic)
-                    .MakeGenericMethod(_texType);
-                new Harmony(HarmonyId).Patch(get, postfix: new HarmonyMethod(postfix));
                 _ready = true;
 
                 Refl.Info("ddsfix: dxgi-aware dds repair armed (loose .dds indexed=" + _indexed
+                          + ", entered from CaseFix's ContentFinder postfix"
+                          + ", one-mip sources get a cpu mip chain"
                           + ", native bc4=" + (_nativeBc4 ? "yes" : "no")
                           + " bc5=" + (_nativeBc5 ? "yes" : "no")
                           + ", dxt3/bc6h decoded to rgba32)");
@@ -137,25 +136,31 @@ namespace AgentTouchFix
         // ------------------------------------------------------------------ postfix
 
         /// <summary>
-        /// Runs after Verse.ContentFinder&lt;Texture2D&gt;.Get decided there is nothing to return.
+        /// The repair, called from CaseFix's postfix on ContentFinder&lt;Texture2D&gt;.Get before that
+        /// postfix decides whether the case-insensitive fallback is needed. Returns true when the result
+        /// was replaced.
         ///
-        /// The generic argument is checked by identity first: Harmony patches one closed instantiation,
-        /// but the runtime shares one body across every reference type, so a ContentFinder&lt;Shader&gt;
-        /// lookup can reach this code too (measured with the CaseFix postfix, which was hit for
-        /// Texture2D, Shader and AudioClip alike). Anything that is not the live Texture2D type leaves
-        /// through the first line.
+        /// Why not its own Harmony postfix: Harmony 2.3.3 refuses to attach a second postfix carrying a
+        /// `ref T __result` to a method that CaseFix already patched - "The existing result contract
+        /// requires an assignable type ... patch ... CaseFix::AfterGet(... T&amp; __result) ... supplied
+        /// UnityEngine.Texture2D, requested AgentTouchFix.T&amp;". Measured in CI run 44746573285: the
+        /// install line reported exactly that and no DDS repair ever ran. One patch, two repairs, keeps
+        /// the ordering explicit.
+        ///
+        /// The generic argument is checked by identity: the runtime shares one body across every
+        /// reference type, so a ContentFinder&lt;Shader&gt; lookup can reach this code too (measured with
+        /// CaseFix's postfix, which was hit for Texture2D, Shader and AudioClip alike).
         /// </summary>
-        [HarmonyPriority(Priority.Low)]
-        private static void AfterGet<T>(string itemPath, ref T __result) where T : class
+        internal static bool TryRepair<T>(string itemPath, ref T __result) where T : class
         {
-            if (!_ready || _off || _files == null) return;
-            if (typeof(T) != _texType) return;
-            if (string.IsNullOrEmpty(itemPath)) return;
+            if (!_ready || _off || _files == null) return false;
+            if (typeof(T) != _texType) return false;
+            if (string.IsNullOrEmpty(itemPath)) return false;
 
             try
             {
                 string key = KeyOf(itemPath);
-                if (key.Length == 0) return;
+                if (key.Length == 0) return false;
 
                 int plan;
                 if (!_plans.TryGetValue(key, out plan))
@@ -164,13 +169,13 @@ namespace AgentTouchFix
                     if (_plans.Count >= MaxEntries) _plans.Clear();
                     _plans[key] = plan;
                 }
-                if (plan == 0) return;
+                if (plan == 0) return false;
 
                 object tex;
                 if (!_built.TryGetValue(key, out tex) || tex == null)
                 {
                     tex = Build(key, (DdsCodec)(plan - 1));
-                    if (tex == null) return;
+                    if (tex == null) return false;
                     if (_built.Count >= MaxEntries) _built.Clear();
                     _built[key] = tex;
                 }
@@ -178,8 +183,13 @@ namespace AgentTouchFix
                 __result = (T)tex;
                 int n = System.Threading.Interlocked.Increment(ref _repaired);
                 if (n <= LogCap) Refl.Info("ddsfix: repaired #" + n + " '" + key + "'");
+                return true;
             }
-            catch (Exception e) { WarnOnce("get " + itemPath + ": " + e.Message); }
+            catch (Exception e)
+            {
+                WarnOnce("get " + itemPath + ": " + e.Message);
+                return false;
+            }
         }
 
         private static string KeyOf(string itemPath)
@@ -307,9 +317,16 @@ namespace AgentTouchFix
                                                                     info.Width, info.Height, levels);
                 if (!punchThrough && !DdsFormat.NeedsRepair(info)) return null;
 
-                object tex = info.Codec == DdsCodec.Bc6H ? BuildNeutral(info)
-                           : punchThrough ? BuildManaged(all, info, levels)
-                           : BuildNative(all, info, levels, need) ?? BuildManaged(all, info, levels);
+                // A one-level file is uploaded as RGBA32 with a chain this code filled in: the engine
+                // builds max(MipCount, uploads.Length) levels and blocks GenerateMipmaps for compressed
+                // formats, so a compressed single-level upload leaves mip>=1 transparent and the art
+                // disappears at icon size. For multi-level files the compressed upload is safe - it
+                // carries exactly as many levels as the texture is created with.
+                bool needsChain = levels < DdsFormat.MipChainLength(info.Width, info.Height);
+
+                object tex = info.Codec == DdsCodec.Bc6H ? BuildNeutral(info, levels, needsChain || levels == 1)
+                           : punchThrough || needsChain ? BuildManaged(all, info, levels, needsChain)
+                           : BuildNative(all, info, levels, need) ?? BuildManaged(all, info, levels, needsChain);
                 if (tex == null) return null;
 
                 if (_mName != null) _mName.Set(tex, System.IO.Path.GetFileNameWithoutExtension(path));
@@ -350,24 +367,41 @@ namespace AgentTouchFix
         /// the engine has no TextureFormat for (DXT3/DXT2), and for BC4/BC5 when the capability probe
         /// says the format cannot be read back.
         /// </summary>
-        private static object BuildManaged(byte[] all, in DdsInfo info, int levels)
+        private static object BuildManaged(byte[] all, in DdsInfo info, int levels, bool generateChain)
         {
             byte[][] mips = DdsFormat.DecodeMipChain(info.Codec, all, info.DataOffset,
                                                     info.Width, info.Height, levels);
             if (mips == null) return null;
 
+            var chain = new List<byte[]>(mips);
+            if (generateChain)
+            {
+                int w = info.Width, h = info.Height;
+                byte[] previous = mips[mips.Length - 1];
+                int want = DdsFormat.MipChainLength(info.Width, info.Height);
+                while (chain.Count < want && (w > 1 || h > 1))
+                {
+                    int dw, dh;
+                    byte[] next = DdsFormat.Downsample(previous, w, h, out dw, out dh);
+                    if (next == null) break;
+                    chain.Add(next);
+                    previous = next;
+                    w = dw; h = dh;
+                }
+            }
+
             int total = 0;
-            for (int i = 0; i < mips.Length; i++) total += mips[i].Length;
+            for (int i = 0; i < chain.Count; i++) total += chain[i].Length;
 
             var raw = new byte[total];
             int at = 0;
-            for (int i = 0; i < mips.Length; i++)
+            for (int i = 0; i < chain.Count; i++)
             {
-                Array.Copy(mips[i], 0, raw, at, mips[i].Length);
-                at += mips[i].Length;
+                Array.Copy(chain[i], 0, raw, at, chain[i].Length);
+                at += chain[i].Length;
             }
 
-            object tex = Create(info, "RGBA32", mips.Length);
+            object tex = Create(info, "RGBA32", chain.Count);
             if (tex == null) return null;
             _loadRaw.Invoke(tex, new object[] { raw });
             return tex;
@@ -379,17 +413,42 @@ namespace AgentTouchFix
         /// would be worse than saying so. The texture is created with a neutral fill so the art is a
         /// visible grey square instead of a blank one, and the log names the file.
         /// </summary>
-        private static object BuildNeutral(in DdsInfo info)
+        private static object BuildNeutral(in DdsInfo info, int levels, bool generateChain)
         {
             WarnOnce("bc6h " + info.Width + "x" + info.Height + ": no managed decoder, neutral fill");
-            object tex = Create(info, "RGBA32", 1);
-            if (tex == null) return null;
+            int count = generateChain ? DdsFormat.MipChainLength(info.Width, info.Height) : 1;
             var raw = new byte[info.Width * info.Height * 4];
             for (int i = 0; i < raw.Length; i += 4)
             {
                 raw[i] = 128; raw[i + 1] = 128; raw[i + 2] = 128; raw[i + 3] = 255;
             }
-            _loadRaw.Invoke(tex, new object[] { raw });
+
+            var chain = new List<byte[]> { raw };
+            int w = info.Width, h = info.Height;
+            byte[] previous = raw;
+            while (chain.Count < count && (w > 1 || h > 1))
+            {
+                int dw, dh;
+                byte[] next = DdsFormat.Downsample(previous, w, h, out dw, out dh);
+                if (next == null) break;
+                chain.Add(next);
+                previous = next;
+                w = dw; h = dh;
+            }
+
+            int total = 0;
+            for (int i = 0; i < chain.Count; i++) total += chain[i].Length;
+            var all = new byte[total];
+            int at = 0;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                Array.Copy(chain[i], 0, all, at, chain[i].Length);
+                at += chain[i].Length;
+            }
+
+            object tex = Create(info, "RGBA32", chain.Count);
+            if (tex == null) return null;
+            _loadRaw.Invoke(tex, new object[] { all });
             return tex;
         }
 

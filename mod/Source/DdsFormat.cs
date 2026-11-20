@@ -285,6 +285,56 @@ namespace AgentTouchFix
             return total;
         }
 
+        /// <summary>
+        /// How many levels a full chain has for this size: 1 + floor(log2(max(w, h))). A 128x128 art
+        /// asset gets 8, a 256x256 gets 9 - the same count CalculateMipCount produces.
+        /// </summary>
+        internal static int MipChainLength(int width, int height)
+        {
+            int size = Math.Max(width, height);
+            int levels = 1;
+            while (size > 1) { size >>= 1; levels++; }
+            return levels;
+        }
+
+        /// <summary>
+        /// Box-filter one level down (2x2 average, edges clamped). Pure byte math on RGBA32 in file
+        /// row order, so the tests can assert a hand-computed average.
+        ///
+        /// This exists because the engine builds `max(MipCount, uploads.Length)` levels and only writes
+        /// the uploaded ones, while GenerateMipmaps refuses block-compressed formats
+        /// (Texture2D.NewFileTexture promotes a one-level file to CalculateMipCount, UploadLevels leaves
+        /// the rest empty). A mod that ships a single-mip DDS therefore samples fully transparent levels
+        /// as soon as it is drawn smaller than 1:1 - the icon-size case. Whenever the source has one
+        /// level we generate the chain here instead of letting the engine leave holes.
+        /// </summary>
+        internal static byte[] Downsample(byte[] rgba, int width, int height, out int outWidth, out int outHeight)
+        {
+            outWidth = Math.Max(1, width / 2);
+            outHeight = Math.Max(1, height / 2);
+            if (rgba == null || rgba.Length < width * height * 4) return null;
+
+            var dst = new byte[outWidth * outHeight * 4];
+            for (int y = 0; y < outHeight; y++)
+            {
+                int y0 = Math.Min(height - 1, y * 2);
+                int y1 = Math.Min(height - 1, y * 2 + 1);
+                for (int x = 0; x < outWidth; x++)
+                {
+                    int x0 = Math.Min(width - 1, x * 2);
+                    int x1 = Math.Min(width - 1, x * 2 + 1);
+                    int a = (y0 * width + x0) * 4;
+                    int b = (y0 * width + x1) * 4;
+                    int c = (y1 * width + x0) * 4;
+                    int d = (y1 * width + x1) * 4;
+                    int o = (y * outWidth + x) * 4;
+                    for (int ch = 0; ch < 4; ch++)
+                        dst[o + ch] = (byte)((rgba[a + ch] + rgba[b + ch] + rgba[c + ch] + rgba[d + ch] + 2) / 4);
+                }
+            }
+            return dst;
+        }
+
         // ------------------------------------------------------------------ decode
 
         /// <summary>

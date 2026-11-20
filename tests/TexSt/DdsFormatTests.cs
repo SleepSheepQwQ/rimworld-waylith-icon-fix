@@ -460,6 +460,92 @@ namespace AgentTouchFix.Tests
             Assert.False(DdsFormat.Bc1HasPunchThrough(new byte[4], 0, 4, 4, 1));
         }
 
+        // ------------------------------------------------------------------ mip chains
+
+        [Fact]
+        public void MipChainLengthMatchesTheFullChainOfASquareImage()
+        {
+            Assert.Equal(1, DdsFormat.MipChainLength(1, 1));
+            Assert.Equal(2, DdsFormat.MipChainLength(2, 2));
+            Assert.Equal(4, DdsFormat.MipChainLength(8, 8));
+            Assert.Equal(8, DdsFormat.MipChainLength(128, 128));
+            Assert.Equal(9, DdsFormat.MipChainLength(256, 256));
+            Assert.Equal(9, DdsFormat.MipChainLength(256, 64));     // the larger side decides
+        }
+
+        [Fact]
+        public void DownsampleAveragesTheFourSourceTexels()
+        {
+            // 2x2 -> 1x1: (10+20+30+40+2)/4 = 25, alpha (255+255+255+1+2)/4 = 192
+            var src = new byte[]
+            {
+                10, 0, 0, 255,   20, 0, 0, 255,
+                30, 0, 0, 255,   40, 0, 0, 1,
+            };
+            int w, h;
+            byte[] dst = DdsFormat.Downsample(src, 2, 2, out w, out h);
+            Assert.Equal(1, w);
+            Assert.Equal(1, h);
+            Assert.Equal(25, dst[0]);
+            Assert.Equal(192, dst[3]);
+        }
+
+        [Fact]
+        public void DownsampleOfAFlatImageStaysTheSameValue()
+        {
+            // a level that came out as a flat fill must not drift towards black at the small mips -
+            // that drift is exactly what a "mip levels are transparent" report looks like
+            int w = 8, h = 8;
+            var src = new byte[w * h * 4];
+            for (int i = 0; i < w * h; i++)
+            {
+                src[i * 4 + 0] = 200; src[i * 4 + 1] = 100; src[i * 4 + 2] = 50; src[i * 4 + 3] = 255;
+            }
+            byte[] level = src;
+            for (int level_index = 1; level_index < DdsFormat.MipChainLength(w, h); level_index++)
+            {
+                int dw, dh;
+                level = DdsFormat.Downsample(level, w, h, out dw, out dh);
+                w = dw; h = dh;
+                Assert.Equal(200, level[0]);
+                Assert.Equal(100, level[1]);
+                Assert.Equal(50, level[2]);
+                Assert.Equal(255, level[3]);
+            }
+        }
+
+        [Fact]
+        public void AOneMipFileCanBeGrownIntoAChainWhereEveryLevelHasPixels()
+        {
+            // 8x8 DXT3, one level: left half red, right half blue. The repaired texture has to end up
+            // with a chain whose level 1 is the 50/50 average (127,0,127), not transparent black.
+            var data = new byte[16 * 4];
+            for (int i = 0; i < 4; i++)
+            {
+                for (int k = 0; k < 8; k++) data[i * 16 + k] = 0xFF;      // alpha 255
+                ColourBlock(0xF800, 0x001F, 0).CopyTo(data, i * 16 + 8);   // all red
+            }
+            byte[] mip0 = DdsFormat.Decode(DdsCodec.Bc2, data, 0, 8, 8);
+            Assert.NotNull(mip0);
+            Assert.Equal(255, mip0[0]);
+            Assert.Equal(0, mip0[2]);
+
+            int w, h = 0;
+            int curW = 8, curH = 8;
+            byte[] level = mip0;
+            int levels = DdsFormat.MipChainLength(curW, curH);
+            Assert.Equal(4, levels);
+            for (int i = 1; i < levels; i++)
+            {
+                level = DdsFormat.Downsample(level, curW, curH, out w, out h);
+                curW = w; curH = h;
+                double sum = 0;
+                for (int p = 0; p < level.Length; p++) sum += level[p];
+                Assert.True(sum > 0, $"mip {i} is all zero");
+                Assert.Equal(255, level[3]);                              // alpha survives
+            }
+        }
+
         // ------------------------------------------------------------------ DXT5 (BC3)
 
         [Fact]
