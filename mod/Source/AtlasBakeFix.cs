@@ -132,12 +132,12 @@ namespace AgentTouchFix
                 _fColorKey = _atlasType.GetField("colorCacheKey", any);
                 _fMaskKey = _atlasType.GetField("maskCacheKey", any);
                 _fGroupKey = _atlasType.GetField("groupKey", any);
-                _pAdopted = _atlasType.GetProperty("AdoptedFromCache", any);
-                _pColorPage = _atlasType.GetProperty("ColorTexture", any) ?? _atlasType.GetProperty("colorTexture", any);
-                _pMaskPage = _atlasType.GetProperty("MaskTexture", any) ?? _atlasType.GetProperty("maskTexture", any);
+                _pAdopted = Prop(_atlasType, "AdoptedFromCache");
+                _pColorPage = Prop(_atlasType, "ColorTexture") ?? Prop(_atlasType, "colorTexture");
+                _pMaskPage = Prop(_atlasType, "MaskTexture") ?? Prop(_atlasType, "maskTexture");
                 _mEnsureResident = _texType.GetMethod("EnsureGpuResident", BindingFlags.Public | BindingFlags.Instance);
-                _pCore = _texType.GetProperty("CoreTexture", BindingFlags.Public | BindingFlags.Instance);
-                _pName = _texType.GetProperty("name", BindingFlags.Public | BindingFlags.Instance);
+                _pCore = Prop(_texType, "CoreTexture");
+                _pName = Prop(_texType, "name");
                 if (_pCore != null)
                 {
                     Type core = _pCore.PropertyType;
@@ -291,6 +291,24 @@ namespace AgentTouchFix
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// First property with this name, hiding and all. <c>GetProperty(name)</c> throws
+        /// AmbiguousMatchException on this port: <c>UnityEngine.Texture2D</c> declares
+        /// <c>new CoreTexture</c> over <c>Texture.CoreTexture</c>, so a plain lookup never resolves
+        /// and the whole install would be refused (measured: "install failed: Ambiguous match found
+        /// for 'UnityEngine.Texture2D Waylith.Rendering.Texture2D CoreTexture'").
+        /// </summary>
+        private static PropertyInfo Prop(Type t, string name)
+        {
+            if (t == null) return null;
+            foreach (PropertyInfo p in t.GetProperties(BindingFlags.Public | BindingFlags.NonPublic |
+                                                       BindingFlags.Instance | BindingFlags.Static))
+            {
+                if (p.Name == name && p.GetIndexParameters().Length == 0) return p;
+            }
+            return null;
         }
 
         private static bool ReadBool(PropertyInfo p, object instance)
