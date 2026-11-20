@@ -533,12 +533,14 @@ namespace DdsAltSt
             Array.Copy(RampBlock(50, 40, Ramp(0)), 0, block, 8, 8);      // G: 50, 40, ...
 
             byte[] px = DdsAltFormat.Decode(AltCodec.Bc5, block, 0, 4, 4);
-            Assert.Equal((byte)200, px[0]);
-            Assert.Equal((byte)50, px[1]);
-            Assert.Equal((byte)0, px[2]);
+            Assert.Equal((byte)200, px[0]);      // R endpoint a0
+            Assert.Equal((byte)50, px[1]);       // G endpoint a0
+            Assert.Equal((byte)0, px[2]);        // B is not carried
             Assert.Equal((byte)255, px[3]);
-            Assert.Equal((byte)185, px[4]);      // (6*200 + 100)/7
-            Assert.Equal((byte)48, px[5]);       // (6*50 + 40)/7 = 340/7 = 48
+            Assert.Equal((byte)100, px[4]);      // R index 1 = a1
+            Assert.Equal((byte)40, px[5]);       // G index 1 = a1
+            Assert.Equal((byte)185, px[8]);      // R index 2 = (6*200 + 100)/7
+            Assert.Equal((byte)48, px[9]);       // G index 2 = (6*50 + 40)/7 = 340/7 = 48
         }
 
         [Fact]
@@ -692,7 +694,7 @@ namespace DdsAltSt
         public void OneLevelSourceProducesAFilledChain()
         {
             byte[] file = LegacyHeader("DXT3", 128, 128, 1);
-            Array.Resize(ref file, 128 + 64);
+            Array.Resize(ref file, 128 + 16384);                      // 32x32 blocks of 16 bytes
             for (int i = 128; i < file.Length; i++) file[i] = 0xFF;   // opaque white blocks
 
             AltHeader h = Header(file);
