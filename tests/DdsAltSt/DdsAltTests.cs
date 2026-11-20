@@ -111,54 +111,55 @@ namespace DdsAltSt
         // ------------------------------------------------------------------ DXGI table
 
         [Theory]
-        [InlineData(70u, AltCodec.Bc1)]
-        [InlineData(71u, AltCodec.Bc1)]
-        [InlineData(72u, AltCodec.Bc1)]
-        [InlineData(73u, AltCodec.Bc2)]
-        [InlineData(74u, AltCodec.Bc2)]
-        [InlineData(75u, AltCodec.Bc2)]
-        [InlineData(76u, AltCodec.Bc3)]
-        [InlineData(77u, AltCodec.Bc3)]
-        [InlineData(78u, AltCodec.Bc3)]
-        [InlineData(79u, AltCodec.Bc4)]
-        [InlineData(80u, AltCodec.Bc4)]      // the CI fixture called bc5.dds is dxgi 80 = BC4_UNORM
-        [InlineData(81u, AltCodec.Bc4)]
-        [InlineData(82u, AltCodec.Bc5)]
-        [InlineData(83u, AltCodec.Bc5)]      // real BC5_UNORM
-        [InlineData(84u, AltCodec.Bc5)]
-        [InlineData(94u, AltCodec.Bc6H)]
-        [InlineData(95u, AltCodec.Bc6H)]
-        [InlineData(96u, AltCodec.Bc6H)]
-        [InlineData(97u, AltCodec.Bc7)]
-        [InlineData(98u, AltCodec.Bc7)]
-        [InlineData(99u, AltCodec.Bc7)]
-        [InlineData(28u, AltCodec.Rgba8)]
-        [InlineData(29u, AltCodec.Rgba8)]
-        [InlineData(87u, AltCodec.Rgba8)]
-        [InlineData(91u, AltCodec.Rgba8)]
-        [InlineData(0u, AltCodec.Unknown)]
-        [InlineData(1u, AltCodec.Unknown)]
-        [InlineData(100u, AltCodec.Unknown)]
-        public void DxgiTable(uint dxgi, AltCodec expected)
+        [InlineData(70u, (int)AltCodec.Bc1)]
+        [InlineData(71u, (int)AltCodec.Bc1)]
+        [InlineData(72u, (int)AltCodec.Bc1)]
+        [InlineData(73u, (int)AltCodec.Bc2)]
+        [InlineData(74u, (int)AltCodec.Bc2)]
+        [InlineData(75u, (int)AltCodec.Bc2)]
+        [InlineData(76u, (int)AltCodec.Bc3)]
+        [InlineData(77u, (int)AltCodec.Bc3)]
+        [InlineData(78u, (int)AltCodec.Bc3)]
+        [InlineData(79u, (int)AltCodec.Bc4)]
+        [InlineData(80u, (int)AltCodec.Bc4)]      // the CI fixture called bc5.dds is dxgi 80 = BC4_UNORM
+        [InlineData(81u, (int)AltCodec.Bc4)]
+        [InlineData(82u, (int)AltCodec.Bc5)]
+        [InlineData(83u, (int)AltCodec.Bc5)]      // real BC5_UNORM
+        [InlineData(84u, (int)AltCodec.Bc5)]
+        [InlineData(94u, (int)AltCodec.Bc6H)]
+        [InlineData(95u, (int)AltCodec.Bc6H)]
+        [InlineData(96u, (int)AltCodec.Bc6H)]
+        [InlineData(97u, (int)AltCodec.Bc7)]
+        [InlineData(98u, (int)AltCodec.Bc7)]
+        [InlineData(99u, (int)AltCodec.Bc7)]
+        [InlineData(28u, (int)AltCodec.Rgba8)]
+        [InlineData(29u, (int)AltCodec.Rgba8)]
+        [InlineData(87u, (int)AltCodec.Rgba8)]
+        [InlineData(91u, (int)AltCodec.Rgba8)]
+        [InlineData(0u, (int)AltCodec.Unknown)]
+        [InlineData(1u, (int)AltCodec.Unknown)]
+        [InlineData(100u, (int)AltCodec.Unknown)]
+        public void DxgiTable(uint dxgi, int codec)
         {
-            Assert.Equal(expected, DdsAltFormat.MapDxgi(dxgi));
+            // int in the signature because AltCodec is internal to the mod assembly (CS0051).
+            Assert.Equal((AltCodec)codec, DdsAltFormat.MapDxgi(dxgi));
         }
 
         [Theory]
-        [InlineData("DXT1", AltCodec.Bc1)]
-        [InlineData("DXT2", AltCodec.Bc2)]   // premultiplied DXT3: same blocks
-        [InlineData("DXT3", AltCodec.Bc2)]
-        [InlineData("DXT4", AltCodec.Bc3)]   // premultiplied DXT5: same blocks
-        [InlineData("DXT5", AltCodec.Bc3)]
-        [InlineData("ATI1", AltCodec.Bc4)]
-        [InlineData("BC4U", AltCodec.Bc4)]
-        [InlineData("ATI2", AltCodec.Bc5)]
-        [InlineData("BC5U", AltCodec.Bc5)]
-        [InlineData("DX10", AltCodec.Unknown)]   // the extension decides, not the FourCC
-        [InlineData("", AltCodec.Unknown)]
-        public void FourCcTable(string fourCc, AltCodec expected)
+        [InlineData("DXT1", (int)AltCodec.Bc1)]
+        [InlineData("DXT2", (int)AltCodec.Bc2)]   // premultiplied DXT3: same blocks
+        [InlineData("DXT3", (int)AltCodec.Bc2)]
+        [InlineData("DXT4", (int)AltCodec.Bc3)]   // premultiplied DXT5: same blocks
+        [InlineData("DXT5", (int)AltCodec.Bc3)]
+        [InlineData("ATI1", (int)AltCodec.Bc4)]
+        [InlineData("BC4U", (int)AltCodec.Bc4)]
+        [InlineData("ATI2", (int)AltCodec.Bc5)]
+        [InlineData("BC5U", (int)AltCodec.Bc5)]
+        [InlineData("DX10", (int)AltCodec.Unknown)]   // the extension decides, not the FourCC
+        [InlineData("", (int)AltCodec.Unknown)]
+        public void FourCcTable(string fourCc, int codec)
         {
-            Assert.Equal(expected, DdsAltFormat.MapFourCc(fourCc));
+            Assert.Equal((AltCodec)codec, DdsAltFormat.MapFourCc(fourCc));
         }
 
         [Fact]
