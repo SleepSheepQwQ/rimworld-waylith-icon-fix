@@ -511,8 +511,13 @@ namespace AgentTouchFix
             }
             else
             {
+                // Decode only the levels the file actually carries; FitChain then fills the rest.
+                // Asking for the full chain here was the bug: a one-level source has no level 1 to
+                // read, so DecodeChain refused the whole file (measured: "decode failed BC2/DXT3
+                // 128x128 mips=8" for the one-level fixture).
+                int carried = Math.Max(1, Math.Min(h.MipCount, choice.Levels));
                 byte[][] decoded = DdsAltFormat.DecodeChain(choice.Codec, all, h.DataOffset,
-                                                            h.Width, h.Height, choice.Levels);
+                                                            h.Width, h.Height, carried);
                 if (decoded == null)
                 {
                     WarnOnce("decode failed " + DdsAltFormat.CodecName(choice.Codec)
