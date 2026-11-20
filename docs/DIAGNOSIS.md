@@ -45,3 +45,25 @@ would show `10/5` in both runs and fail the job.
   so `Resources/Textures/...` is requested as `<DataPath>/Resources/Textures/...`, while the harness
   gives Core the content root `run/Data/Core` (no `Textures/`). `ContentFinder` then returns 0 —
   a harness artefact, not a defect. DLC packs (`Data/<Dlc>`, entries `Textures/...`) mount fine.
+
+### 5. The animal half (`Graphic_Multi`) is proven the same way
+
+`run 44669724455` (`modcheck`, same host, one generated mod that ships animal-style names:
+`IbexLeak_south.png.png`, `IbexLeak_southm.png.png`, …):
+
+| run | collection (weapon path) | multi (animal path) |
+|---|---|---|
+| control, leak layout | `fresh variants=10 masks=5` | `resolved=0/4` — every direction `<null>` |
+| + GlyphFix 2.6.4 | `fresh variants=5 masks=0` | `resolved=4/4` — `IbexLeak_south/north/east/west.png` |
+
+Two distinct failures, two distinct repairs, both measured on the objects the engine built:
+
+* `Graphic_Collection` — the mask slips into the variant list and `thingIDNumber % n` draws it for
+  half the items. Fixed by `CollectionVariants` (postfix on `Init`).
+* `Graphic_Multi` — the per-direction key itself misses (`<path>_east` vs asset `…_east.png`), so the
+  animal draws nothing at all. Fixed by `ContentFallbackFix` (miss-only retry with the extensions
+  appended). No mask is involved in this half.
+
+A probe for the Multi half needs no `ThingDef`: `GraphicDatabase.Get<Graphic_Multi>(path, shader,
+Vector2.one, Color.white)` resolves purely from `texPath`, which makes the experiment independent of
+def XML.
