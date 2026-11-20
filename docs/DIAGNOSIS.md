@@ -143,3 +143,41 @@ flattens the sprite to a single colour - the grey box with the black bar. GlyphF
 
 `Map/MoteGlowDistorted` is referenced by 4 `<shaderType>` entries in the shipped XML and does fall
 back to the default shader.
+
+### 10. Two more engine-side ways to lose an image (run `44746260732`, real Vulkan/llvmpipe)
+
+**Mip chains are allocated but not written for block formats.** `Texture2D.NewFileTexture`
+(`dc2/Waylith.Rendering/Texture2D.cs:767`) promotes a 1-mip file to `CalculateMipCount(w,h)` levels
+(256² -> 9), `UploadLevels` allocates `max(MipCount, uploads.Length)` and writes only the uploaded
+levels, and `GpuTextureService.GenerateMipmaps` is gated by `!IsBlockCompressed(format)`. Measured on a
+real Vulkan device in CI:
+
+| fixture | non-zero texels in mip 2 |
+|---|---|
+| `bc1_mip0_only` | **0 / 2048** (transparent) |
+| `bc1_all_mips` | 1024 / 2048 |
+| `rgba8_mip0_only` | 0 / 16384 |
+| `rgba8_all_mips` | 16384 / 16384 |
+
+RGBA32 survives because the GPU is allowed to generate the missing levels; BC does not. So a mod's
+1-mip DDS turns transparent as soon as it is drawn smaller than its native size - an icon at 34 px from
+a 128 px source, or a map zoomed out.
+
+**The atlas registers a tile before it draws it.** `StaticTextureAtlas.Bake` fills `tiles`
+(`Verse/StaticTextureAtlas.cs:164-171`) and then blits each texture into a page that was cleared to
+transparent (`:474`, `:492`). A failed blit only calls `StubWarner.LogStub`
+(`UnityStubs/Graphics.cs:560-596`) - no exception, no error. `Graphic.TryGetTextureAtlasReplacementInfo`
+then happily swaps the source texture for that transparent tile, and the source is never used again.
+The failure is reachable during `PlayDataLoader.DoPlayLoad`, because `BakeStaticAtlases` runs inside the
+deferred-loading window where textures are metadata-only.
+
+### 11. What mod content actually looks like (sampled 758 public mod repos)
+
+* 364 repos ship `Textures/`; only **19** contain any `.dds` (5.2 %).
+* **All 19** also ship a same-named `.png` (707 pairs, 673 of them in-game textures), so
+  `ShadowedByDds` silently deleting the PNG is the normal case for DDS mods, not an edge case - it only
+  bites when the DDS is unsupported, corrupt, or older than the PNG.
+* Of 712 sampled `.dds` headers: 74 DXT1, 638 DX10 - and **all 638 DX10 are BC7 (dxgi 98/99)**. No
+  DXT3/BC4/BC5/BC6H in the wild, so the format-mapping bugs are traps rather than everyday breakage.
+* `LoadFolders.xml` truncation of the implicit root/`Common` scan: 0 hits in 41 sampled manifests.
+* Case-only mismatches in 15 small repos: 0 - the three live mismatches are in the shipped Core data.
