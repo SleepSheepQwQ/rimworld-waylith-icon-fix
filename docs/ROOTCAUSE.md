@@ -54,15 +54,22 @@ warning, or simply `return`. A player sees "blank"; the log says nothing that na
 also why the earlier fixes looked successful without being verified: the code path that mattered never
 reported failure.
 
-## What GlyphFix covers, and what it cannot
+## What a mod can reach, and at what cost
 
-Covered (verified in the engine, not by unit tests): the `CutoutComplexUI` icon material, the grayscale
-mask substitution, mask variants in collections, per-direction `Graphic_Multi` misses, ordinal lookups.
+Everything below is reachable with Harmony; the differences are how invasive the patch is and whether
+the asset it needs actually exists.
 
-Not covered, and not coverable from a mod without re-implementing engine internals: the DDS format
-mapping, hollow mip chains, the atlas bake gap, the eleven missing shaders, `ShadowedByDds`.
-`DdsFormatFix` (in progress) takes the first two of those by decoding unstupported formats and
-supplying a full mip chain itself.
+| Mechanism | Patch target | Cost / risk | Status |
+|---|---|---|---|
+| DDS format mapping (DX10 -> BC7, DXT3/BC4/BC5) | generic postfix on `ContentFinder<Texture2D>.Get`, or `ModDdsLoader.TryLoadDds` | low - decoders are self-contained | in progress (`DdsFormatFix`) |
+| Hollow mip chains | decode to RGBA32 and upload a CPU-built chain, or fix up after `NewFileTexture` | medium - CPU mip generation, or block compression | planned |
+| `.dds` shadowing a `.png` | prefix `ModContentLoader.ShadowedByDds`: do not shadow when the DDS cannot be decoded | low, but needs a header cache to avoid extra IO on 2000+ files | planned |
+| Atlas tile registered before it is drawn | prefix `StaticTextureAtlas.Bake` with `EnsureGpuResident()`, dropping tiles that fail | high - engine internals, runs on the boot path | not attempted |
+| 11 missing shaders | ship `Shaders/*.glsl`, or map the name onto an existing shader | **the sources do not exist in the package** - this one is missing assets, not a missing hook | not possible as-is |
+| sRGB / VkFormat table | static pure functions in `TexturePixelData` | very wide blast radius for an unclear gain | not attempted |
+
+So "a mod cannot fix it" was the wrong framing for four of the six: those are *patching depth* problems,
+not capability problems. Only the missing shaders are blocked by absent material.
 
 ## Suggested upstream fixes, cheapest first
 
