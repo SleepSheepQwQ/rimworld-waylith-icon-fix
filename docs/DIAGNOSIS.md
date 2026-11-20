@@ -118,29 +118,28 @@ No other mismatch exists in Core or the five DLCs, which is exactly why the symp
 animals and items", not as a broken install - and why Windows, whose file system ignores case, never
 showed it. `CaseFix` (2.6.5) repairs all three through the same miss-only fallback.
 
-### 9. 15 of the 63 shaders `ShaderDatabase` asks for are not shipped
+### 9. 11 of the 63 shaders `ShaderDatabase` asks for are not shipped (corrected)
 
-Comparing every `LoadShader("…")` name in `Verse.ShaderDatabase` (63) against
-`Data/Core/Shaders/**` (229 `.glsl` files, case-sensitive, `.frag/.vert/.comp/.glsl`) leaves 15 names
-with no source **and** no `.spv-cache` entry in `Assets.zip`:
+Comparing every `LoadShader("…")` name in `Verse.ShaderDatabase` (63) against every `.glsl` under
+`Data/Core/Shaders/**` **by file name, in any subdirectory**, 11 names have no source and no
+`.spv-cache` entry:
 
 ```
-Map/CutoutFlying01          Misc/GrayscaleGUI            World/WorldOverlayAdditive
-Map/CutoutOverlay           Misc/Invisible               World/WorldOverlayAdditiveTwoSided
-Map/IndoorMaskMasked        Misc/Metalblood              World/WorldOverlayTransparent
-Map/MoteGlowDistorted       Misc/Silhouette              World/WorldOverlayTransparentLit
-Map/RitualStencil                                        World/WorldOverlayTransparentLitPollution
-Map/SolidColorBehind
+Map/CutoutFlying01   Map/CutoutOverlay    Map/IndoorMaskMasked   Map/MoteGlowDistorted
+Map/RitualStencil    Map/SolidColorBehind
+World/WorldOverlayAdditive            World/WorldOverlayAdditiveTwoSided
+World/WorldOverlayTransparent         World/WorldOverlayTransparentLit
+World/WorldOverlayTransparentLitPollution
 ```
 
-`ShaderRegistry.Resolve` falls back to the default shader for every one of them, so content that asks
-for these draws with the wrong program rather than failing loudly. Two consequences already seen:
+**Correction of an earlier note in this file:** `Misc/GrayscaleGUI`, `Misc/Invisible`,
+`Misc/Metalblood` and `Misc/Silhouette` are *not* missing - they ship as `Map/GrayscaleGUI.frag.glsl`
+and friends, and `ShaderDatabase.TryLoadShader` maps a path to a `ShaderDef` name before
+`Shader.CreateLateBound`, so the `Misc/` prefix is not what breaks them. The disabled-command box was
+therefore never a "missing shader": the grayscale branch builds its own `MaterialRequest`, and when
+the material comes back null `Widgets.ThingIcon` substitutes `Texture2D.redTexture` as the mask, which
+flattens the sprite to a single colour - the grey box with the black bar. GlyphFix bypasses the branch
+(`grayscale: false`), which is why it disappears.
 
-* `Misc/GrayscaleGUI` - the disabled-command icon box (the "grey box with a black bar" beside Draft);
-  GlyphFix bypasses it by forcing `grayscale: false` on `Widgets.ThingIcon`.
-* `Map/MoteGlowDistorted` - used by 4 `<shaderType>` entries in the shipped XML; those motes draw
-  with the default shader.
-
-The remaining names are reached from code (world overlay layers, silhouette rendering, invisible
-draws), so a complete repair needs either the missing GLSL or a name-to-existing-shader mapping; the
-mod only patches the two paths that produce player-visible breakage.
+`Map/MoteGlowDistorted` is referenced by 4 `<shaderType>` entries in the shipped XML and does fall
+back to the default shader.
