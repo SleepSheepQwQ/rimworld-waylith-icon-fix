@@ -172,12 +172,31 @@ namespace AgentTouchFix
             if (m == null) return false;
             try
             {
-                if (_pMaterialName == null) _pMaterialName = Prop(m.GetType(), "name");
-                string n = _pMaterialName == null ? null : _pMaterialName.GetValue(m) as string;
+                string n = MaterialName(m);
                 return !string.IsNullOrEmpty(n) && n.StartsWith("CutoutComplexUI", StringComparison.Ordinal);
             }
             catch { return false; }
         }
+
+        /// <summary>
+        /// Reads Object.name. It is a public *field* on UnityEngine.Object here (verified in the shipped
+        /// stubs), not a property, and it lives on the base type - a property-only lookup silently
+        /// answers null, which would make the whole material drop a no-op.
+        /// </summary>
+        private static string MaterialName(object m)
+        {
+            if (_nameGetter != null) return _nameGetter(m) as string;
+            for (Type t = m.GetType(); t != null; t = t.BaseType)
+            {
+                FieldInfo f = t.GetField("name", BindingFlags.Public | BindingFlags.Instance);
+                if (f != null) { _nameGetter = f.GetValue; return f.GetValue(m) as string; }
+                PropertyInfo p = t.GetProperty("name", BindingFlags.Public | BindingFlags.Instance);
+                if (p != null) { _nameGetter = o => p.GetValue(o); return p.GetValue(m) as string; }
+            }
+            return null;
+        }
+
+        private static Func<object, object> _nameGetter;
 
         private static PropertyInfo _pMaterialName;
 
