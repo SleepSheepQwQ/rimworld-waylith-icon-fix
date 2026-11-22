@@ -81,6 +81,15 @@ namespace AgentTouchFix
         private static void PostfixThing<TTex, TMat, TCol>(object thing, ref TTex __result,
                                                           ref TMat material, ref TCol color)
         {
+            // A usable texture can still be paired with a material this port cannot render: GetIconFor(Thing)
+            // synthesises its own ui material from the body graphic (CutoutComplex -> CutoutComplexUI), so
+            // clearing def.uiIconMaterial never reaches it. Drop it here and let Widgets take the plain
+            // texture path, exactly like the def overload's material drop.
+            if (IsUnrenderableUiMaterial(material))
+            {
+                material = default(TMat);
+                if (_white != null) color = (TCol)_white;
+            }
             if (!NeedsFallback(__result)) return;
             try
             {
@@ -120,6 +129,26 @@ namespace AgentTouchFix
         }
 
         /// <summary>Hot path: one box of a reference type (no allocation) and two comparisons.</summary>
+        /// <summary>
+        /// True when the icon material is the UI variant this port cannot draw (its name starts with
+        /// "CutoutComplexUI"). Checked by name because the type is engine-side and the mod carries no
+        /// reference to it.
+        /// </summary>
+        private static bool IsUnrenderableUiMaterial<TMat>(TMat material)
+        {
+            object m = material;
+            if (m == null) return false;
+            try
+            {
+                if (_pMaterialName == null) _pMaterialName = Prop(m.GetType(), "name");
+                string n = _pMaterialName == null ? null : _pMaterialName.GetValue(m) as string;
+                return !string.IsNullOrEmpty(n) && n.StartsWith("CutoutComplexUI", StringComparison.Ordinal);
+            }
+            catch { return false; }
+        }
+
+        private static PropertyInfo _pMaterialName;
+
         private static bool NeedsFallback<T>(T result)
         {
             object tex = (object)result;
