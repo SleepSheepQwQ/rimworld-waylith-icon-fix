@@ -68,6 +68,10 @@ namespace AgentTouchFix
 
                 _off = !IconFallbackDecision.Enabled(text);
                 if (_off) Refl.Info("iconfallback: disabled by " + SwitchPath);
+
+                // Resolved once: the material's SetVector(string, Vector4) target and the Vector4 type.
+                _vector4Type = Refl.T("UnityEngine.Vector4");
+                if (_vector4Type == null) Refl.Warn("iconfallback: UnityEngine.Vector4 not found, _MainTex_ST repair disabled");
             }
             catch (Exception e) { WarnOnce("init: " + e.Message); }
         }
@@ -87,8 +91,17 @@ namespace AgentTouchFix
             // texture path, exactly like the def overload's material drop.
             if (IsUnrenderableUiMaterial(material))
             {
-                material = default(TMat);
-                if (_white != null) color = (TCol)_white;
+                // Two-tier repair, in the order Camera+ recommends for this port: the material is fine,
+                // its _MainTex_ST is not. GLSL ShaderDef shaders receive (scale.xy, offset.zw) while
+                // CutoutComplexUI computes vUv * _MainTex_ST.zw + _MainTex_ST.xy, i.e. it reads xy as
+                // the offset. Resetting the vector to identity makes both readings agree, and keeps the
+                // mask/tint that dropping the material would lose. Only if the vector cannot be written
+                // do we fall back to dropping the material (the 2.7.1 behaviour).
+                if (!TryNormalizeUiMaterial(material))
+                {
+                    material = default(TMat);
+                    if (_white != null) color = (TCol)_white;
+                }
             }
             if (!NeedsFallback(__result)) return;
             try
@@ -134,6 +147,29 @@ namespace AgentTouchFix
         /// "CutoutComplexUI"). Checked by name because the type is engine-side and the mod carries no
         /// reference to it.
         /// </summary>
+        /// <summary>
+        /// Resets _MainTex_ST to identity on an icon material. Returns false when the material has no
+        /// such vector or the write fails, so the caller can fall back to dropping the material.
+        /// </summary>
+        private static bool TryNormalizeUiMaterial<TMat>(TMat material)
+        {
+            object m = material;
+            if (m == null) return false;
+            try
+            {
+                if (_mSetVector == null)
+                    _mSetVector = m.GetType().GetMethod("SetVector", new[] { typeof(string), _vector4Type ?? typeof(float) });
+                if (_mSetVector == null || _vector4Type == null) return false;
+                object identity = Activator.CreateInstance(_vector4Type, 0f, 0f, 1f, 1f);
+                _mSetVector.Invoke(m, new[] { "_MainTex_ST", identity });
+                return true;
+            }
+            catch { return false; }
+        }
+
+        private static MethodInfo _mSetVector;
+        private static Type _vector4Type;
+
         private static bool IsUnrenderableUiMaterial<TMat>(TMat material)
         {
             object m = material;
