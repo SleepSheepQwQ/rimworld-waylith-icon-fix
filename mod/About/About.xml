@@ -3,7 +3,7 @@
   <name>GlyphFix</name>
   <author>SleepSheep</author>
   <packageId>sleepsheep.waylith.glyphfix</packageId>
-  <modVersion>2.7.3</modVersion>
+  <modVersion>2.7.4</modVersion>
   <supportedVersions><li>1.7</li></supportedVersions>
   <description>Repairs five rendering defects of the Waylith Android port: blank build-menu icons (uiIcon resolved to BadTex through an unrenderable CutoutComplexUI material); the empty gizmo box beside Draft (Misc/GrayscaleGUI is not registered in this port, so disabled-command icons were drawn through the default shader); masked DLC art that drew blank or drew its own mask (double-extension content keys broke every mask lookup, and let masks into Graphic_Collection's variant list); and items whose own instance graphic has no usable texture (GetIconFor(Thing, ...) is instance level only, so the icon fell back to def.uiIcon, then to the def graphic, with the broken out material dropped); and loose DDS textures filed under the wrong format or refused outright by the loader (a DX10 header was mapped to BC7 whatever DXGI format it carried, so BC4/BC5 art decoded as garbage or threw, and DXT3/DXT2/DXT4 were dropped to the 2x2 BadTex placeholder; the DXGI word is now honoured, unsupported blocks are decoded to RGBA32, and DXT1 punch-through alpha is kept instead of being uploaded as an alpha-less BC1). Steady-state cost 16.7 ns per patched call.</description>
 </ModMetaData>
