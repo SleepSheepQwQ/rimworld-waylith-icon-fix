@@ -246,3 +246,28 @@ shadowfix: rescued 'Shadow' from 'Shadow.png'
 Two consequences: the second `ref T __result` postfix does install, and mip-complete BC4/BC5 content is
 uploaded **natively** - only DXT3/one-mip sources are decoded to RGBA32, so the "0.5-2 GB of extra
 textures" estimate does not apply to the shipped packs.
+
+### 15. Two more hypotheses tested and killed (runs 45064595078, 45065614287)
+
+**RenderTexture.active diversion - refuted with a positive control.** A recording backend injected into
+the headless host shows `active == null` at every icon draw, and the material call arriving exactly once:
+
+```
+Ibex      active.before=null  draw=material:1  [CutoutComplexUI_IbexMale_east]
+Squirrel  active.before=null  draw=texcoords:1 [material=null]
+forced active=RT -> Ibex material calls = 0 (the probe does detect diversion), Squirrel still texcoords:1
+```
+
+An IL sweep of all 109 shipped assemblies finds only seven callers that write `RenderTexture.active`,
+all of them atlas bake / debug export / gravship screenshots, all paired; and `FrameStart.Run` clears it
+at the top of every frame. So the material draw is not being diverted offscreen.
+
+**The MaterialPool `_MainTex_ST` hole is real but unused by shipped code.** Executing the shipped
+`MatFrom`: two requests with the same eight key fields but different `_MainTex_ST` return the *same*
+material, and the last write wins (1 material where 2 are needed). However a scan of all 91k methods
+finds **zero** call sites that write `_MainTex_ST` on a pooled material (atlas bake clones first,
+`MaterialDef` builds one per def, panners use their own overlay material). The hole is a trap for mods -
+including our own dead `TexStMath` helper - not the cause here.
+
+Also measured: a destroyed `mainTexture` makes `MatFrom` return `BaseContent.BadMat` (safe), but the old
+entry is never evicted, so the pool grows without bound across reloads.
