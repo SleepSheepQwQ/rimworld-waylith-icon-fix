@@ -89,19 +89,15 @@ namespace AgentTouchFix
             // synthesises its own ui material from the body graphic (CutoutComplex -> CutoutComplexUI), so
             // clearing def.uiIconMaterial never reaches it. Drop it here and let Widgets take the plain
             // texture path, exactly like the def overload's material drop.
+            // Drop the UI material unconditionally. Measured here: the engine writes _MainTex_ST as
+            // (offset, scale), which is exactly what the GLSL expects, so the shader maths is not the
+            // fault; the material path itself (ImGuiMaterialRenderer) is what fails to draw. Keeping the
+            // material (the 2.7.2 idea) would re-blank the icon, so it is dropped and Widgets falls back
+            // to the plain texture path, which is the path Cutout animals already use successfully.
             if (IsUnrenderableUiMaterial(material))
             {
-                // Two-tier repair, in the order Camera+ recommends for this port: the material is fine,
-                // its _MainTex_ST is not. GLSL ShaderDef shaders receive (scale.xy, offset.zw) while
-                // CutoutComplexUI computes vUv * _MainTex_ST.zw + _MainTex_ST.xy, i.e. it reads xy as
-                // the offset. Resetting the vector to identity makes both readings agree, and keeps the
-                // mask/tint that dropping the material would lose. Only if the vector cannot be written
-                // do we fall back to dropping the material (the 2.7.1 behaviour).
-                if (!TryNormalizeUiMaterial(material))
-                {
-                    material = default(TMat);
-                    if (_white != null) color = (TCol)_white;
-                }
+                material = default(TMat);
+                if (_white != null) color = (TCol)_white;
             }
             if (!NeedsFallback(__result)) return;
             try
