@@ -40,6 +40,10 @@ namespace AgentTouchFix
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
                 DrawGuardFix.Install();
+
+                PatchReport.Log(Refl.T("Verse.Widgets"), "ThingIcon");
+                PatchReport.Log(Refl.T("Verse.Widgets"), "GetIconFor");
+                PatchReport.Log(Refl.T("Verse.Graphic_Collection"), "Init");
                 TestSpawn.Install();
 
                 Refl.Info("BUILD " + typeof(Bootstrap).Assembly.GetName().Version + " iconfallback+ddsformat+casefix+shadowfix+drawguard"
