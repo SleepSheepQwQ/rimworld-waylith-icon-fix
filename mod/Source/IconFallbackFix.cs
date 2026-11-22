@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Threading;
@@ -42,6 +43,7 @@ namespace AgentTouchFix
         private const string HarmonyId = "sleepsheep.waylith.agenttouchfix.iconfallback";
 
         private static bool _off;
+        private static string _mode = "";
         private static bool _resolved;
         private static int _hits, _warned;
 
@@ -66,12 +68,11 @@ namespace AgentTouchFix
                 }
                 catch (Exception e) { Refl.Warn("iconfallback: switch unreadable: " + e.Message); }
 
+                _mode = text ?? "";
                 _off = !IconFallbackDecision.Enabled(text);
                 if (_off) Refl.Info("iconfallback: disabled by " + SwitchPath);
 
                 // Resolved once: the material's SetVector(string, Vector4) target and the Vector4 type.
-                _vector4Type = Refl.T("UnityEngine.Vector4");
-                if (_vector4Type == null) Refl.Warn("iconfallback: UnityEngine.Vector4 not found, _MainTex_ST repair disabled");
             }
             catch (Exception e) { WarnOnce("init: " + e.Message); }
         }
@@ -85,19 +86,21 @@ namespace AgentTouchFix
         private static void PostfixThing<TTex, TMat, TCol>(object thing, ref TTex __result,
                                                           ref TMat material, ref TCol color)
         {
-            // A usable texture can still be paired with a material this port cannot render: GetIconFor(Thing)
-            // synthesises its own ui material from the body graphic (CutoutComplex -> CutoutComplexUI), so
-            // clearing def.uiIconMaterial never reaches it. Drop it here and let Widgets take the plain
-            // texture path, exactly like the def overload's material drop.
-            // Drop the UI material unconditionally. Measured here: the engine writes _MainTex_ST as
-            // (offset, scale), which is exactly what the GLSL expects, so the shader maths is not the
-            // fault; the material path itself (ImGuiMaterialRenderer) is what fails to draw. Keeping the
-            // material (the 2.7.2 idea) would re-blank the icon, so it is dropped and Widgets falls back
-            // to the plain texture path, which is the path Cutout animals already use successfully.
+            // A usable texture can still be paired with a material this port cannot render:
+            // GetIconFor(Thing) synthesises its own UI material from the body graphic (CutoutComplex ->
+            // CutoutComplexUI) and never consults def.uiIconMaterial, so the def-level drop cannot reach
+            // it. Take the plain texture path instead - the path plain Cutout animals already use.
+            //
+            // That material also carried the graphic's _Color (graphicData.color); Widgets only forces
+            // white because the material applies it. Dropping the material must therefore copy the
+            // colour into the out parameter, or every tinted species loses its colour (45 of the 51
+            // shipped CutoutComplex body graphics carry a non-white colour).
             if (IsUnrenderableUiMaterial(material))
             {
+                object carried = ReadMaterialColor(material);
                 material = default(TMat);
-                if (_white != null) color = (TCol)_white;
+                if (carried is TCol c) color = c;
+                else if (_white != null) color = (TCol)_white;
             }
             if (!NeedsFallback(__result)) return;
             try
@@ -143,45 +146,48 @@ namespace AgentTouchFix
         /// "CutoutComplexUI"). Checked by name because the type is engine-side and the mod carries no
         /// reference to it.
         /// </summary>
-        /// <summary>
-        /// Resets _MainTex_ST to identity on an icon material. Returns false when the material has no
-        /// such vector or the write fails, so the caller can fall back to dropping the material.
-        /// </summary>
-        private static bool TryNormalizeUiMaterial<TMat>(TMat material)
-        {
-            object m = material;
-            if (m == null) return false;
-            try
-            {
-                if (_mSetVector == null)
-                    _mSetVector = m.GetType().GetMethod("SetVector", new[] { typeof(string), _vector4Type ?? typeof(float) });
-                if (_mSetVector == null || _vector4Type == null) return false;
-                object identity = Activator.CreateInstance(_vector4Type, 0f, 0f, 1f, 1f);
-                _mSetVector.Invoke(m, new[] { "_MainTex_ST", identity });
-                return true;
-            }
-            catch { return false; }
-        }
-
-        private static MethodInfo _mSetVector;
-        private static Type _vector4Type;
 
         private static bool IsUnrenderableUiMaterial<TMat>(TMat material)
         {
             object m = material;
             if (m == null) return false;
+            if (_dropCache.TryGetValue(m, out bool known)) return known;
+            bool drop;
             try
             {
                 string n = MaterialName(m);
-                return !string.IsNullOrEmpty(n) && n.StartsWith("CutoutComplexUI", StringComparison.Ordinal);
+                drop = IconPath.UsePlain(n, _mode);
             }
-            catch { return false; }
+            catch { drop = false; }
+            if (_dropCache.Count > 4096) _dropCache.Clear();
+            _dropCache[m] = drop;
+            return drop;
         }
 
+        private static readonly Dictionary<object, bool> _dropCache =
+            new Dictionary<object, bool>(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Material.color is a property returning GetColor("_Color"); field-first for safety.</summary>
+        private static object ReadMaterialColor(object material)
+        {
+            try
+            {
+                if (_pMatColor == null)
+                {
+                    for (Type t = material.GetType(); t != null && _pMatColor == null; t = t.BaseType)
+                        _pMatColor = t.GetProperty("color", BindingFlags.Public | BindingFlags.Instance);
+                }
+                return _pMatColor?.GetValue(material);
+            }
+            catch { return null; }
+        }
+
+        private static PropertyInfo _pMatColor;
+
         /// <summary>
-        /// Reads Object.name. It is a public *field* on UnityEngine.Object here (verified in the shipped
-        /// stubs), not a property, and it lives on the base type - a property-only lookup silently
-        /// answers null, which would make the whole material drop a no-op.
+        /// Reads Object.name. In the shipped stubs it is a property on UnityEngine.Object (getter goes
+        /// through UnityRuntime.World.GetName), inherited by Material; the field branch is kept because
+        /// an earlier build of the stubs exposed it as a field and the lookup must survive both.
         /// </summary>
         private static string MaterialName(object m)
         {
@@ -197,8 +203,6 @@ namespace AgentTouchFix
         }
 
         private static Func<object, object> _nameGetter;
-
-        private static PropertyInfo _pMaterialName;
 
         private static bool NeedsFallback<T>(T result)
         {
