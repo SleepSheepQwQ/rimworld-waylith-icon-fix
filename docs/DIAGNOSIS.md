@@ -201,3 +201,48 @@ job reaches `Glfw.Init()` but dies in `Brutal.VulkanApi.Vulkan`'s type initializ
 `libvulkanshim.so` is arm64-only. Until a device run shows healthy tiles surviving, the module stays on
 branch `atlasfix` and out of the released zip; its failure mode is safe (dropping a tile only costs
 draw calls) but unmeasured, and this mod does not ship unmeasured performance changes.
+
+### 13. Why the CutoutComplexUI material draws nothing (chain walk, static)
+
+The draw path is `Widgets.DrawTextureFitted` -> `GenUI.DrawTextureWithMaterial` -> `Graphics.DrawTexture`
+-> `ImGuiGuiBackend.DrawTextureWithMaterial` -> snapshot -> `ImGuiVulkanRenderer.RecordDraws` ->
+`ImGuiMaterialRenderer.TryRecord` -> pipeline/descriptor -> `vkCmdDrawIndexed`.
+
+Only two of those stages can produce *zero pixels* for a material draw:
+
+* `TryResolveTexture` (backend :1416) - but it logs once per texture ("cannot draw texture ... reason"),
+  and it also serves the plain-texture path, which works for Cutout animals, so it is not selective.
+* the pipeline/build stages fail *softly*: `RecordDraws:514` swaps in `FallbackTextureId` and draws the
+  plain texture instead. `Program == null` is unreachable in this build (the registry always yields a
+  program; the fallback is `SceneDefault.frag`, which itself discards on `a <= 0.001`).
+
+What remains is the material *shader maths*: the material branch does not flip V and the GLSL computes
+`uv = vUv * _MainTex_ST.zw + _MainTex_ST.xy`. Measured on the real shader: identity/raw/bundle-order =
+15660 px, engine-swapped order = 0 px, a constant-w bound = 16384 px (a full opaque square). So a
+`_MainTex_ST` mismatch is the only mechanism that yields exactly "no pixels" while every Vulkan gate
+passes - or the shader silently lands on `SceneDefault.frag`, whose `discard` does the same.
+
+`ShaderDatabase.TryLoadShader` only falls back to bundle shaders when the `ShaderDef` is *absent*, and
+`CutoutComplexUI` has one (`Shaders.Map.xml`), so the GLSL path (`scaleFirst = false`) is the one in
+use; a mismatch would require the ShaderDef and the compiled program to come from different sources.
+
+GlyphFix does not try to repair this: it drops the material and draws the texture, which is the path
+plain `Cutout` species already use successfully (see the species/shader correlation in VERIFICATION).
+
+### 14. "CaseFix was blocked by ContentFallbackFix" - refuted with the run's own log
+
+Run 45059535245 (`b.log`) shows every module arming and working:
+
+```
+casefix: case-insensitive miss fallback armed (gated on anyReloaded)
+ddsfix: ... entered from CaseFix's ContentFinder postfix, native bc4=yes bc5=yes
+patchreport: Widgets.GetIconFor -> (5p:Material&)=pre0/post1/fin0
+patchreport: Graphic_Collection.Init -> post1
+ddsfix: 'Bc5' dxgi=80 mips=8 loader=BC7 -> BC4 (native)
+casefix: 'IbexMale_east' -> 'IbexMALE_east'
+shadowfix: rescued 'Shadow' from 'Shadow.png'
+```
+
+Two consequences: the second `ref T __result` postfix does install, and mip-complete BC4/BC5 content is
+uploaded **natively** - only DXT3/one-mip sources are decoded to RGBA32, so the "0.5-2 GB of extra
+textures" estimate does not apply to the shipped packs.
