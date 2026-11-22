@@ -35,12 +35,14 @@ namespace AgentTouchFix
                 CaseFix.Install();
                 DdsFormatFix.Install();
                 ShadowFix.Install();
+                ShadowFix.Repair();
                 CollectionFix.Install();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
+                DrawGuardFix.Install();
                 TestSpawn.Install();
 
-                Refl.Info("BUILD 2.6.6 ddsformat"
+                Refl.Info("BUILD " + typeof(Bootstrap).Assembly.GetName().Version + " iconfallback+ddsformat+casefix+shadowfix+drawguard"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
                           + " + collection variant mask filter"
