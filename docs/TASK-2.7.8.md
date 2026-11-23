@@ -1,0 +1,52 @@
+# 2.7.8 — 独特武器图标的三个残缺陷
+
+背景与实测：配套仓库 `docs/UNIQUE-WEAPON-ICON.md`（含 CI run 45237630449 的原始输出）。
+所有行号指 1.7.9795 反编译：`rimworld-waylith-re/defgraphic/src/Assembly-CSharp.decompiled.cs`。
+
+## 缺陷 1：Thing 分支从不执行
+
+`IconFieldFix` 用 `Prop(arg, "def")` 解引用实例的 def，但 `Prop` 只走属性解析；
+`Verse.Thing.def` 是**公有字段**（`Thing` 类定义处 `public ThingDef def;`）。
+结果：装备栏/物品栏里 `uiIcon == BadTex` 的实例永远得不到修复，日志出现
+`drawfix: uiIcon field not found on Thing`。
+
+修法：新增字段解析（`Member.Resolve(t, "def", needWrite:false, preferField:true)`），在 Prefix 里替换
+`Prop(arg,"def")`。
+
+## 缺陷 2：集合取图用了目录路径
+
+`IconFieldFix.Fill` 取 `graphic.path`。对 `Graphic_Collection`（含 `Graphic_Random`），
+`path` 是**文件夹**（`Graphic_Collection.Init` 里赋值），真实变体名在每个
+`subGraphics[i].path` 上（`req.path + "/" + tex.name`）。因此 `ContentFinder.Get(folder)` 必 miss，
+`Fill` 返回 false。
+
+修法：先尝试 `subGraphics[i].path`，跳过掩码（复用 `MaskName.IsVariantMask`），取第一个非掩码；
+失败再回落到原 `graphic.path`。索引 0 与 `ResolveIcon` 的
+`ExtractInnerGraphicFor(null) → SubGraphicFor(null) → subGraphics[0]` 保持一致。
+
+## 缺陷 3：包通道 DDS 未修
+
+`DdsFormatFix` 通过扫描 `<mod>/Textures/**/*.dds` 建索引（`BuildIndex`），
+而 Odyssey/Core 的贴图在 `Assets.zip` 内，`Data/<Dlc>/` 下没有 `Textures/` 目录，
+索引为空，`TryRepair` 恒返回 plan 0。结果：包内 BC4/BC5 掩码仍被 `ModDdsLoader` 当 BC7 解，
+`LoadRawTextureData` 拒绝 → `BaseContent.BadTex` → `ThingIcon(ThingDef)` 早退。
+
+修法（二选一，优先 A）：
+- A. 把修复点从文件系统索引移到 `ModDdsLoader.TryLoadDds`（或其调用点），按 DDS 头里的 DXGI
+  真实格式分流；这样散装与包通道同源修复。
+- B. 保留索引，改成在 `ContentPack` 加载时按条目名匹配并就地纠正格式（复杂，不推荐）。
+
+## 验收（必须全部满足）
+
+1. `dotnet test tests/TexSt` 全绿（现有 258 条不回归）。
+2. 新增 fixture 门禁：`.png.dds` 双扩展名 + DX10 BC4 掩码 + `Graphic_Random` + `CutoutComplex`
+   - 断言 `subGraphics.Length == 5`（掩码被 `CollectionFix` 丢弃）
+   - 断言 `subGraphics[0]` 名字不以 `_m` 结尾
+   - 断言 `def.uiIcon != null && def.uiIcon != BaseContent.BadTex`
+   - 断言 `uiIcon.GetPixels32()` 不抛异常，且不透明像素占比 > 0
+3. 实机复现（由维护者执行，不由代理触发）：独特武器在装备栏与建造菜单均显示正常图，不再是灰块。
+4. 零回归：上文 2.7.7 已修八项的门禁保持全绿。
+
+## 反例控制
+
+把 `VariantPath` 临时改为恒返回 null，以上第 2 条必须重新变红；否则说明测试没有咬住缺陷。
