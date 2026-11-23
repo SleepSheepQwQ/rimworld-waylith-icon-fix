@@ -50,3 +50,15 @@ IL/decompiled source but not executed; `open` = not verified yet.
 1. Device confirmation of 2.7.0 on the reported saves (male ibex, the modified weapon).
 2. The atlas fix's positive control (needs a device), so the module stays on `atlasfix`.
 3. The 11 genuinely missing shaders: no GLSL sources to ship.
+
+## F. Device confirmation (2026-11-23, user-reported)
+
+With GlyphFix **2.7.7** installed (`GlyphFix.dll` md5 `17202065d0050aaa6382460622242f2f`, About 2.7.7,
+enabled in ModsConfig) and the imported save `Деградация.rws` (15,305,813 B, md5 `f0a21e585ace4d32`),
+the animal-list icons render correctly.
+
+This closes the chain: the blank icons were the `CutoutComplexUI` material synthesised inside
+`Widgets.GetIconFor(Thing)`, which this port cannot draw; dropping that material and carrying its
+`_Color` into the icon restores the plain-texture path that `Cutout` species always used.
+
+Note: this confirmation is the user's own observation. No device log was read, and none was requested.
