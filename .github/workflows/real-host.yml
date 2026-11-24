@@ -4,8 +4,8 @@ name: real-host-building-icon
 # Android emulator: the Architect icon defect is in managed/UI/material code, so booting the real
 # DefDatabase and real Widgets paths gives stronger regression coverage at much lower cost.
 #
-# The host assets live in SleepSheepQwQ/rimworld-waylith-re and are checked out into .waylith-host.
-# If that repository is private, configure WAYLITH_RE_TOKEN with read access to it.
+# The host assets live in the public repository SleepSheepQwQ/rimworld-waylith-re and are checked out
+# into .waylith-host. The workflow only uses the ephemeral github.token; no personal PAT is stored.
 
 on:
   push:
@@ -31,7 +31,8 @@ concurrency:
 
 jobs:
   real-host:
-    # Secrets are unavailable to fork PRs. Same-repository branches can use the configured token.
+    # The public checkout works for same-repository branches and pushes. Fork PRs skip the expensive
+    # real-host job; the regular build and software-Vulkan gates still run there.
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
@@ -53,8 +54,9 @@ jobs:
         with:
           repository: SleepSheepQwQ/rimworld-waylith-re
           path: .waylith-host
-          token: ${{ secrets.WAYLITH_RE_TOKEN || github.token }}
+          token: ${{ github.token }}
           fetch-depth: 1
+          persist-credentials: false
 
       - uses: actions/setup-dotnet@v4
         with:
