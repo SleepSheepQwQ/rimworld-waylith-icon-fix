@@ -74,7 +74,7 @@ Note: this confirmation is the user's own observation. No device log was read, a
 | unique-weapon positive, all four layouts 5/0 and DRAW | `45314135780` | pass; real, plain, `.png.dds`, and DX10 BC4 layouts all 5/0 with 0 blank picks |
 | prebuilt collection scan proof | `45312806973` | all four layouts shortened to 5/0; the run's stale direct-read assertion was replaced |
 | isolated ShadowFix PNG fallback | `45314136663` | pass; Shadow missed in control and returned the exact 128x128 PNG pixels with GlyphFix; decodable DDS still won |
-| real `Assets.zip` integration and unique weapon | `45314966990` | packed-only A/B fixture; final result pending |
+| real `Assets.zip` integration and unique weapon | `45314966990` | not counted: the headless harness rejects the reduced pack as `Corrupt central directory`; loose VirtualFile DDS gates remain authoritative, device observation pending |
 
 The first uniqueicon attempt exposed a test-design error: it read the pre-existing `uiIcon`
 directly and bypassed `Widgets.ThingIcon`, where `IconFieldFix` runs. A second issue was found in

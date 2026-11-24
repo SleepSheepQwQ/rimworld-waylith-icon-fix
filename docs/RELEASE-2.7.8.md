@@ -44,6 +44,9 @@
 - 特殊武器 `45314135780`：真实、plain、`.png.dds`、DX10 BC4 四种布局均为 5/0、DRAW、0 blank。
 - 同名 DDS/PNG `45314136663`：control 缺图，修复后返回与 PNG 完全一致的 128×128 像素。
 
+pack 通道的精简 headless 资产包被 harness 自身判为 `Corrupt central directory`，该 run 不作为
+通过证据；真实 Odyssey `Assets.zip` 请在本地观察清单中确认。
+
 本地产物：
 
 - `GlyphFix.dll` SHA-256 `d630449f88cfd8d527d7a00d68e71cb10789e8fd5c2e19b99059e282ef406167`

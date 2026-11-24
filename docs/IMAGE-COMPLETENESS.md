@@ -34,7 +34,7 @@ successful repair.
 | Animal list synthesises `CutoutComplexUI` on the Thing overload | implemented | 2.7.7 device confirmation |
 | Unique weapon: `Thing.def` field missed | implemented | `IconFieldFix`; Bench contract |
 | Unique weapon: collection folder used as texture path | implemented | uniqueicon run `45314135780`: four layouts 5/0, no mask picks |
-| Unique weapon: pack DDS loaded before the prefix | implemented | `DdsPrefixAlt.SweepContent` + post-mount sweep; real-pack gate pending |
+| Unique weapon: pack DDS loaded before the prefix | implemented | loader prefix handles `VirtualFile`; loose DDS gate passes. The reduced `Assets.zip` harness is non-authoritative (`Corrupt central directory`), so device observation is the final check |
 | Later-mod `BadTex` hides an earlier-mod texture | implemented | `ContentFallbackFix` treats `BadTex` as a local miss |
 | Static atlas keeps a transparent tile for a failed blit | implemented | run `45312477319`: control 2/2 tiles; patched live kept/dead removed 1/1 |
 
