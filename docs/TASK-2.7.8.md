@@ -1,8 +1,9 @@
 # 2.7.8 — 独特武器图标的三个残缺陷
 
-状态（2026-11-24）：三项代码均已实现。散装 DDS 真宿主门禁已通过；包通道 sweep 改为
-`ModContentPack.GetAllFilesForMod`，uniqueicon 正例与 Atlas 正例仍在最终 CI 验证中。具体 run id
-以 `docs/VERIFICATION.md` 为准。
+状态（2026-11-24）：三项代码均已实现。散装 DDS、uniqueicon 正例、隔离 ShadowFix 和 Atlas
+正例均已通过真宿主门禁；包通道 sweep 已改为 `ModContentPack.GetAllFilesForMod`，并通过
+`SweepLoadedContent` 在挂载后强制执行。真实 `Assets.zip` 最终 run 以 `docs/VERIFICATION.md`
+为准。
 
 背景与实测：配套仓库 `docs/UNIQUE-WEAPON-ICON.md`（含 CI run 45237630449 的原始输出）。
 所有行号指 1.7.9795 反编译：`rimworld-waylith-re/defgraphic/src/Assembly-CSharp.decompiled.cs`。

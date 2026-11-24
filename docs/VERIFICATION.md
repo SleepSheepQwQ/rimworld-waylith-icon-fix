@@ -71,10 +71,10 @@ Note: this confirmation is the user's own observation. No device log was read, a
 | DDS loader prefix: BC4, DX10 BC3, DXT3, one-mip, DXT1 alpha, old 5/0 and 4/4 gates | `45309425523` | pass |
 | DdsFormatFix + DdsPrefixAlt enabled together | `45309757735` | pass |
 | AtlasBakeFix negative + sentinel-live positive | `45312477319` | 13/13 assertions; control 2/2, patched live kept/dead removed 1/1 |
-| unique-weapon positive, all four layouts 5/0 and DRAW | `45313405044` | pass; real, plain, `.png.dds`, and DX10 BC4 layouts all 5/0 with 0 blank picks |
+| unique-weapon positive, all four layouts 5/0 and DRAW | `45314135780` | pass; real, plain, `.png.dds`, and DX10 BC4 layouts all 5/0 with 0 blank picks |
 | prebuilt collection scan proof | `45312806973` | all four layouts shortened to 5/0; the run's stale direct-read assertion was replaced |
-| isolated ShadowFix PNG fallback | `45313407446` | pass; Shadow missed in control and returned the exact 128x128 PNG pixels with GlyphFix; decodable DDS still won |
-| `Assets.zip` first-pass sweep | `45313434195` | real-pack fixture; final result pending |
+| isolated ShadowFix PNG fallback | `45314136663` | pass; Shadow missed in control and returned the exact 128x128 PNG pixels with GlyphFix; decodable DDS still won |
+| `Assets.zip` first-pass sweep | `45314535896` | real-pack fixture; final result pending |
 
 The first uniqueicon attempt exposed a test-design error: it read the pre-existing `uiIcon`
 directly and bypassed `Widgets.ThingIcon`, where `IconFieldFix` runs. A second issue was found in
