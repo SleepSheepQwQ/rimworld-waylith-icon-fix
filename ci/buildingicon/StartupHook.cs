@@ -445,8 +445,12 @@ internal static class StartupHook
                          .Where(m => m.Name == "ThingIcon" || m.Name == "GetIconFor"))
             {
                 ParameterInfo[] ps = m.GetParameters();
-                if (ps.Length == 0 || (ps[0].ParameterType != typeof(ThingDef) &&
-                                       ps[0].ParameterType != typeof(Thing))) continue;
+                // GetIconFor starts with ThingDef/Thing; ThingIcon starts with Rect and carries the
+                // def/thing in parameter 1.
+                int ownerIndex = m.Name == "ThingIcon" ? 1 : 0;
+                if (ps.Length <= ownerIndex ||
+                    (ps[ownerIndex].ParameterType != typeof(ThingDef) &&
+                     ps[ownerIndex].ParameterType != typeof(Thing))) continue;
                 Patches patches = Harmony.GetPatchInfo(m);
                 string[] prefixes = patches == null ? Array.Empty<string>()
                     : patches.Prefixes.Select(p => $"{p.owner}:{p.PatchMethod.Name}").ToArray();
@@ -455,12 +459,14 @@ internal static class StartupHook
                 methods.Add(new Dictionary<string, object>
                 {
                     ["method"] = Signature(m),
-                    ["first"] = ps[0].ParameterType.Name,
+                    ["first"] = ps[ownerIndex].ParameterType.Name,
                     ["prefixes"] = prefixes,
                     ["postfixes"] = postfixes,
-                    ["glyphfixThingIcon"] = ps[0].ParameterType == typeof(ThingDef) && m.Name == "ThingIcon" &&
+                    ["glyphfixThingIcon"] = ps[ownerIndex].ParameterType == typeof(ThingDef) &&
+                                            m.Name == "ThingIcon" &&
                                             prefixes.Any(x => x.Contains("agenttouchfix.drawfix", StringComparison.Ordinal)),
-                    ["glyphfixGetIconFor"] = ps[0].ParameterType == typeof(ThingDef) && m.Name == "GetIconFor" &&
+                    ["glyphfixGetIconFor"] = ps[ownerIndex].ParameterType == typeof(ThingDef) &&
+                                             m.Name == "GetIconFor" &&
                                              HasByRef(ps, typeof(Material)) &&
                                              prefixes.Any(x => x.Contains("agenttouchfix.drawfix.geticonfor", StringComparison.Ordinal))
                 });
