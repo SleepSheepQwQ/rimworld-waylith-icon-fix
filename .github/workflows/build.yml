@@ -55,6 +55,16 @@ jobs:
       - name: Unit tests (DDS prefix decoder + DXGI mapping + mip chains)
         run: dotnet test tests/DdsAltSt/DdsAltSt.csproj -c Release -v minimal
 
+      # Executes the current IconFieldFix source through a game-shaped ThingDef path. This catches
+      # the 2.7.8 first-call bug where Install() seeded the def type but never resolved uiIcon or
+      # uiIconMaterial. The fixture includes RoyalBed, NutrientPasteDispenser, a collection path,
+      # and a healthy non-CutoutComplexUI control.
+      - name: Build-menu icon execution gate
+        run: dotnet run --project tests/BuildingGate/BuildingGate.csproj -c Release -v minimal
+
+      - name: Real-host gate status self-test
+        run: python3 tests/BuildingGate/test_real_host_gate.py
+
       - name: Build the mod
         run: dotnet build mod/AgentTouchFix.csproj -c Release -v minimal
 

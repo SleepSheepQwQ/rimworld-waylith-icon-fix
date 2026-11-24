@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    DOTNET_STARTUP_HOOKS probe for the real Waylith managed host.
+
+    The host closure is checked out separately and supplied with -p:WaylithHost=/path/to/host.
+    Game assemblies are referenced only for compilation and are never copied into GlyphFix.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>GlyphFixBuildingIcon</AssemblyName>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS8632</NoWarn>
+    <WaylithHost Condition="'$(WaylithHost)' == ''">$(MSBuildThisFileDirectory)../../.waylith-host</WaylithHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(WaylithHost)/dlls/Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityStubs">
+      <HintPath>$(WaylithHost)/dlls/UnityStubs.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Waylith">
+      <HintPath>$(WaylithHost)/dlls/Waylith.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(WaylithHost)/dlls/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

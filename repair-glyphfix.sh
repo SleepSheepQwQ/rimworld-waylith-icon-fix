@@ -82,6 +82,8 @@ if [ "$RUN_TESTS" -eq 1 ]; then
     echo "[2/5] tests"
     dotnet test "$ROOT/tests/TexSt/TexSt.csproj" -c Release --nologo
     dotnet test "$ROOT/tests/DdsAltSt/DdsAltSt.csproj" -c Release --nologo
+    dotnet run --project "$ROOT/tests/BuildingGate/BuildingGate.csproj" -c Release
+    python3 "$ROOT/tests/BuildingGate/test_real_host_gate.py"
 else
     echo "[2/5] tests skipped by request"
 fi

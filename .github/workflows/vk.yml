@@ -7,12 +7,34 @@ on:
   push:
     paths:
       - 'vk/**'
+      - 'mod/Source/IconFieldFix.cs'
+      - 'mod/Source/IconFallbackFix.cs'
+      - 'mod/Source/IconPathDecision.cs'
+      - 'tests/TexSt/CutoutComplexUiFrag.cs'
+      - 'tests/TexSt/IconPathTests.cs'
+      - '.github/workflows/vk.yml'
+  pull_request:
+    paths:
+      - 'vk/**'
+      - 'mod/Source/IconFieldFix.cs'
+      - 'mod/Source/IconFallbackFix.cs'
+      - 'mod/Source/IconPathDecision.cs'
+      - 'tests/TexSt/CutoutComplexUiFrag.cs'
+      - 'tests/TexSt/IconPathTests.cs'
       - '.github/workflows/vk.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vk-repro-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   render:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -39,11 +61,36 @@ jobs:
       - name: Render the icon-material cases
         run: |
           if [ -n "${ICD:-}" ]; then export VK_ICD_FILENAMES="$ICD"; fi
-          bash vk/run_cases.sh build
+          bash vk/run_cases.sh build 2>&1 | tee build/run.log
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## software Vulkan icon gate"
+            echo
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- software ICD: \`${ICD:-unknown}\`"
+            echo
+            echo '```'
+            grep -E '^(CASE|PASS|FAIL)' build/run.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Assertion details on failure
+        if: failure()
+        run: |
+          echo "=== failed assertions ==="
+          grep -E '^FAIL' build/run.log || true
+          echo "=== tail ==="
+          tail -n 100 build/run.log || true
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: renders
-          path: build/*.ppm
-          if-no-files-found: ignore
+          name: vk-render-${{ github.run_id }}
+          path: |
+            build/*.ppm
+            build/run.log
+            build/results.txt
+          if-no-files-found: warn

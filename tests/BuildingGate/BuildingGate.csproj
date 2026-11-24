@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Executable regression gate for the build-menu icon path.
+
+       This project compiles the current IconFieldFix source against game-shaped fakes and lets
+       Harmony install the real prefixes. Widgets.ThingIcon then executes the same order as the game:
+       BadTex check -> GetIconFor -> ThingIconWorker. It deliberately does not re-implement the fix:
+       a regression in the shipped prefix turns this program red.
+
+       AssemblyName is intentional. IconFieldFix resolves ContentFinder<T> from Assembly-CSharp. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Assembly-CSharp</AssemblyName>
+    <RootNamespace>BuildingGate</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../mod/Source/IconFieldFix.cs" Link="mod/IconFieldFix.cs" />
+    <Compile Include="../../mod/Source/MaskName.cs" Link="mod/MaskName.cs" />
+    <Compile Include="../../mod/Source/IconVariantPath.cs" Link="mod/IconVariantPath.cs" />
+    <Compile Include="../../mod/Source/IconPathDecision.cs" Link="mod/IconPathDecision.cs" />
+    <Compile Include="../../mod/Source/Member.cs" Link="mod/Member.cs" />
+    <Compile Include="../../mod/Source/MemberChoice.cs" Link="mod/MemberChoice.cs" />
+    <Compile Include="../../mod/Source/Refl.cs" Link="mod/Refl.cs" />
+  </ItemGroup>
+
+</Project>

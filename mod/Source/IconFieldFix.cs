@@ -127,7 +127,10 @@ namespace AgentTouchFix
                     if (def != arg && _done.Contains(def)) { Remember(arg); return; }
                 }
 
-                if (_defType != def.GetType()) Resolve(def.GetType());
+                // Install() seeds _defType with ThingDef before any draw. Checking only the type
+                // therefore skipped the first (and most important) ThingDef call with _mIcon==null:
+                // the Architect icon returned here before either uiIcon or uiIconMaterial was repaired.
+                if (_defType != def.GetType() || _mIcon == null) Resolve(def.GetType());
                 if (_mIcon == null) return;   // Resolve logged why; the draw stays untouched
 
                 object icon = _mIcon.Get(def);

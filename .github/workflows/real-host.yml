@@ -1,0 +1,220 @@
+name: real-host-building-icon
+
+# Runs the shipped Waylith managed host on a normal Linux runner. This is intentionally not an
+# Android emulator: the Architect icon defect is in managed/UI/material code, so booting the real
+# DefDatabase and real Widgets paths gives stronger regression coverage at much lower cost.
+#
+# The host assets live in SleepSheepQwQ/rimworld-waylith-re and are checked out into .waylith-host.
+# If that repository is private, configure WAYLITH_RE_TOKEN with read access to it.
+
+on:
+  push:
+    paths:
+      - 'mod/**'
+      - 'ci/buildingicon/**'
+      - 'ci/buildingicon-gate.py'
+      - '.github/workflows/real-host.yml'
+  pull_request:
+    paths:
+      - 'mod/**'
+      - 'ci/buildingicon/**'
+      - 'ci/buildingicon-gate.py'
+      - '.github/workflows/real-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-host-building-icon-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-host:
+    # Secrets are unavailable to fork PRs. Same-repository branches can use the configured token.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PROBE_TIMEOUT_MS: '300000'
+
+    steps:
+      - name: Checkout GlyphFix
+        uses: actions/checkout@v4
+        with:
+          path: glyphfix
+
+      - name: Checkout real Waylith host
+        uses: actions/checkout@v4
+        with:
+          repository: SleepSheepQwQ/rimworld-waylith-re
+          path: .waylith-host
+          token: ${{ secrets.WAYLITH_RE_TOKEN || github.token }}
+          fetch-depth: 1
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Toolchain and host inventory
+        run: |
+          set -euo pipefail
+          dotnet --version
+          gcc --version | head -1
+          uname -srm
+          test -f .waylith-host/dlls/Assembly-CSharp.dll
+          test -f .waylith-host/dlls/Waylith.dll
+          test -x .waylith-host/ci/assemble.sh
+          md5sum .waylith-host/dlls/Assembly-CSharp.dll .waylith-host/dlls/Waylith.dll
+
+      - name: Texture and assembly tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libstb-dev
+          python3 -m pip install --break-system-packages --quiet pillow
+          python3 -c "import PIL; print('Pillow', PIL.__version__)"
+
+      - name: Build host apphost, GlyphFix and probe
+        run: |
+          set -euo pipefail
+          dotnet build .waylith-host/ci/apphost/RimWorld.csproj -c Release -v minimal
+          dotnet build glyphfix/mod/AgentTouchFix.csproj -c Release -v minimal
+          dotnet build glyphfix/ci/buildingicon/GlyphFixBuildingIcon.csproj -c Release -v minimal \
+            -p:WaylithHost="$GITHUB_WORKSPACE/.waylith-host"
+
+      - name: Assemble the real host and stage the current mod
+        run: |
+          set -euo pipefail
+          mkdir -p out/control out/patched
+          (
+            cd .waylith-host
+            bash ci/assemble.sh "$GITHUB_WORKSPACE/run"
+          ) 2>&1 | tee out/assemble.log
+
+          DLL=$(find glyphfix/mod/bin/Release -name 'GlyphFix.dll' | head -1)
+          test -n "$DLL"
+          mkdir -p run/Mods/glyphfix/About run/Mods/glyphfix/Assemblies
+          cp glyphfix/mod/About/About.xml run/Mods/glyphfix/About/
+          cp "$DLL" run/Mods/glyphfix/Assemblies/
+          sha256sum "$DLL"
+          grep -o '<modVersion>[^<]*' run/Mods/glyphfix/About/About.xml
+
+      - name: Generate synthetic Architect fixtures
+        run: |
+          set -euo pipefail
+          python3 glyphfix/ci/buildingicon/make_assets.py \
+            --resources "$GITHUB_WORKSPACE/run/RimWorld_Data/Resources" \
+            2>&1 | tee out/assets.log
+          find run/RimWorld_Data/Resources/Textures/Things/Building \
+            -type f -name '*.png' -printf '%p %s bytes\n' | sort | tee -a out/assets.log
+
+      - name: "Control: the real host without GlyphFix"
+        run: |
+          set -uo pipefail
+          CFG="$HOME/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+          mkdir -p "$CFG"
+          cp .waylith-host/ci/ModsConfig.xml "$CFG/ModsConfig.xml"
+          rm -rf run/Mods/glyphfix
+
+          (
+            cd run
+            DOTNET_STARTUP_HOOKS="$GITHUB_WORKSPACE/glyphfix/ci/buildingicon/bin/Release/net10.0/GlyphFixBuildingIcon.dll" \
+            BUILDICON_MODE=control \
+            BUILDICON_OUT="$GITHUB_WORKSPACE/out/control" \
+            timeout 360 ./RimWorld -Headless -SuppressUnityStubs -DisableLogStackTraces
+          ) > out/control/host.log 2>&1
+          rc=$?
+          echo "$rc" > out/control/host_exit.txt
+          grep -aE '^\[BUILDICON\]|^\[AgentTouchFix\]' out/control/host.log | tail -n 120 || true
+          exit 0
+
+      - name: "Patched: the current GlyphFix checkout"
+        run: |
+          set -uo pipefail
+          CFG="$HOME/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+          python3 - "$GITHUB_WORKSPACE/.waylith-host/ci/ModsConfig.xml" \
+                    "$CFG/ModsConfig.xml" <<'PY'
+          import sys
+          src, dst = sys.argv[1:]
+          text = open(src, encoding="utf-8").read()
+          marker = "    <li>ludeon.rimworld.odyssey</li>"
+          if marker not in text:
+              raise SystemExit("ModsConfig.xml: expected Odyssey marker is missing")
+          text = text.replace(
+              marker,
+              marker + "\n    <li>sleepsheep.waylith.glyphfix</li>",
+              1,
+          )
+          open(dst, "w", encoding="utf-8").write(text)
+          print(text)
+          PY
+
+          (
+            cd run
+            DOTNET_STARTUP_HOOKS="$GITHUB_WORKSPACE/glyphfix/ci/buildingicon/bin/Release/net10.0/GlyphFixBuildingIcon.dll" \
+            BUILDICON_MODE=patched \
+            BUILDICON_OUT="$GITHUB_WORKSPACE/out/patched" \
+            timeout 360 ./RimWorld -Headless -SuppressUnityStubs -DisableLogStackTraces
+          ) > out/patched/host.log 2>&1
+          rc=$?
+          echo "$rc" > out/patched/host_exit.txt
+          grep -aE '^\[BUILDICON\]|^\[AgentTouchFix\]' out/patched/host.log | tail -n 160 || true
+          exit 0
+
+      - name: A/B real-host gate
+        run: |
+          set -euo pipefail
+          CONTROL_EXIT=$(cat out/control/host_exit.txt)
+          PATCHED_EXIT=$(cat out/patched/host_exit.txt)
+          python3 glyphfix/ci/buildingicon-gate.py \
+            out/control/events.jsonl \
+            out/patched/events.jsonl \
+            --control-exit "$CONTROL_EXIT" \
+            --patched-exit "$PATCHED_EXIT" \
+            --summary out/summary.md
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Real-host build-menu icon gate"
+            echo
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- control exit: \`$(cat out/control/host_exit.txt 2>/dev/null || echo missing)\`"
+            echo "- patched exit: \`$(cat out/patched/host_exit.txt 2>/dev/null || echo missing)\`"
+            echo
+            if [ -f out/summary.md ]; then cat out/summary.md; fi
+            echo
+            echo '```'
+            grep -aE '^\[BUILDICON\]|^\[AgentTouchFix\] (drawfix|BUILD|patchreport)' \
+              out/control/host.log out/patched/host.log 2>/dev/null | tail -n 160 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure details
+        if: failure()
+        run: |
+          echo "=== control events ==="
+          cat out/control/events.jsonl 2>/dev/null || true
+          echo "=== patched events ==="
+          cat out/patched/events.jsonl 2>/dev/null || true
+          echo "=== patched host tail ==="
+          tail -n 160 out/patched/host.log 2>/dev/null || true
+          echo "=== control host tail ==="
+          tail -n 100 out/control/host.log 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-host-building-icon-${{ github.run_id }}
+          path: |
+            out/**
+            run/Player.log
+            /home/runner/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Logs/Player.log
+            /home/runner/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config/ModsConfig.xml
+          if-no-files-found: warn

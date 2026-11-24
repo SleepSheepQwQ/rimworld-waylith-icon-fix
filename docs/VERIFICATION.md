@@ -84,3 +84,34 @@ whether to reload. The shadow gate disables the higher-priority DDS repairs so i
 in isolation.
 
 The player-facing build remains conditional on every final row passing against the same DLL hash.
+
+## H. Build-menu regression gates and 2.7.8 first-call fix (2026-11-25)
+
+The 2.7.8 release had a building-icon regression that the pure decision tests could not see.
+`IconFieldFix.Install()` seeded `_defType` with `ThingDef`, while `_mIcon` and `_mMat` were still
+null. `Repair()` only resolved members when the runtime type changed, so the first `ThingDef` draw
+returned with neither repair attempted; repeated `ThingDef` calls stayed on the same path, and the
+repair was only re-enabled if some other runtime type forced `Resolve()`.
+
+The fix resolves members when either the type changes **or** `_mIcon` is still null. Three gates now
+cover the path:
+
+| Gate | Where | What fails the job |
+|---|---|---|
+| Game-shaped execution gate | `.github/workflows/build.yml` -> `tests/BuildingGate` | `RoyalBed` / `NutrientPasteDispenser` retain `BadTex` or `CutoutComplexUI`, the worker is skipped, a healthy `Cutout` material is erased, or the renderer is not reached |
+| Software Vulkan pixels | `.github/workflows/vk.yml` | the real CutoutComplexUI shader paints no icon for identity `_MainTex_ST`, or the known blank case starts painting |
+| Real Waylith managed host | `.github/workflows/real-host.yml` | control does not reproduce `CutoutComplexUI`, patched does not install Bootstrap/Harmony, either first-call route remains broken, host exits non-zero, or the non-UI control material changes |
+
+The real-host job checks out `SleepSheepQwQ/rimworld-waylith-re`, assembles its shipped managed
+closure and Core/Odyssey data, generates synthetic Architect fixtures, then boots the host twice
+(without/with this checkout). It does not use Docker or an Android emulator: the regression lives in
+managed Def/UI/material handling, while an emulator adds KVM, ARM/x86 and GPU variability without
+testing the same code any more faithfully.
+
+Local commands:
+
+```bash
+dotnet run --project tests/BuildingGate/BuildingGate.csproj -c Release
+bash vk/run_cases.sh vk/build
+python3 -m py_compile ci/buildingicon-gate.py
+```
