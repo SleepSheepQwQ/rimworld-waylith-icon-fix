@@ -197,9 +197,11 @@ on (`EnsureGpuResident()`, with one `FinishPendingBuild()` retry), unregisters t
 nulls the page cache keys and clears `Graphic.replacementInfoCache`.
 
 **Positive control:** the GPU job reaches `Glfw.Init()` but the hosted runner cannot create a Vulkan
-window surface, so that path cannot prove a healthy tile survives. The 2.7.8 release-candidate gate
-uses a sentinel-resident texture on the shipped managed types instead; its result is recorded in
-`VERIFICATION.md`. The failure mode remains safe: dropping a tile only costs atlas draw calls and the
+window surface, so that path cannot prove a healthy tile survives. The 2.7.8 gate uses a
+sentinel-resident texture on the shipped managed types instead: run `45312477319` measured control
+`textures=2 tiles=2`, then patched `textures=1 tiles=1`, with the live tile kept, the dead tile
+removed, and replacement info false only for the dead source. Pixel readback remains an explicit
+device-only check. The failure mode remains safe: dropping a tile only costs atlas draw calls and the
 source texture is used instead.
 
 ### 13. Why the CutoutComplexUI material draws nothing (chain walk, static)

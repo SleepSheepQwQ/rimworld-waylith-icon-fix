@@ -2,11 +2,21 @@
 
 [English](README.md) · **简体中文** · [Русский](README.ru.md)
 
-移植版的两个渲染缺陷，两个补丁，不动引擎。
+在运行时修补 Waylith 安卓移植版的图片丢失链，不改 APK、不重打包。
 
 > 曾用名 `AgentTouchFix`，代码相同，换了个更贴切的名字。
 
 ## 修了什么
+
+2.7.8 覆盖玩家最常见的四类界面：
+
+- **建造菜单**：`BadTex`、无法渲染的 `CutoutComplexUI`、错误集合路径；
+- **殖民者与物品列表**：Thing/Def 两级图标回退，材质坏但贴图仍在的情况；
+- **动物图标**：`Graphic_Multi`、方向掩码、双扩展名、Thing 级 UI 材质；
+- **奥德赛特殊武器**：`.png.dds`、DX10 BC4 掩码、`Graphic_Random`、Assets.zip 包通道。
+
+底层同时修复 DDS 格式与空洞 mip、DDS 顶掉 PNG、后加载模组的 `BadTex` 遮住前序有效图，
+以及静态 Atlas 用透明 tile 替换源图的问题。完整矩阵见 `docs/IMAGE-COMPLETENESS.md`。
 
 **一、建造菜单图标空白。** `ThingDef.uiIcon` 在移植版里会变成 `BaseContent.BadTex`——因为图形材质被解析成 `CutoutComplexUI`，而这张材质在本移植版永远拿不到可读贴图。GlyphFix 在绘制时直接从 graphic 的贴图路径补 `uiIcon`，并把渲染不出东西的图标材质摘掉。
 
@@ -26,6 +36,21 @@
 ## 安装
 
 把 `GlyphFix` 放进 `Mods/`，启用，重启。没有其它配置项。
+
+从源码一键构建、测试并打包：
+
+```bash
+./repair-glyphfix.sh
+```
+
+安装到玩家指定的 Mods 目录：
+
+```bash
+./repair-glyphfix.sh --install /你的/RimWorld/Mods
+```
+
+脚本不会改 `ModsConfig.xml`，也不会硬编码设备路径。已有 GlyphFix 默认不覆盖；加 `--force`
+时会先把旧目录移动成带时间戳的备份。
 
 ## 环境
 

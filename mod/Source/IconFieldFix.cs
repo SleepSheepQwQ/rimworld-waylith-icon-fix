@@ -85,10 +85,25 @@ namespace AgentTouchFix
         [HarmonyPriority(Priority.Low)]   // other mods get the first word on ThingIcon
         internal static void Prefix(object[] __args)
         {
+            if (__args == null || __args.Length < 2) return;
+            Repair(__args[1]);
+        }
+
+        /// <summary>
+        /// Direct Widgets.GetIconFor(ThingDef, ...) callers do not pass through ThingIcon. Repair the
+        /// def before the original, so lists that read the icon directly do not keep a mask/BadTex
+        /// that was resolved before GlyphFix could install its Graphic_Collection postfix.
+        /// </summary>
+        internal static void PrefixDef(object[] __args)
+        {
+            if (__args == null || __args.Length == 0) return;
+            Repair(__args[0]);
+        }
+
+        private static void Repair(object arg)
+        {
             try
             {
-                if (__args == null || __args.Length < 2) return;
-                object arg = __args[1];
                 if (arg == null) return;
 
                 if (unchecked(Environment.TickCount - _nextProbe) >= 0) Probe();   // int compare, ~1 ns
@@ -439,6 +454,20 @@ namespace AgentTouchFix
                     new Harmony("sleepsheep.waylith.agenttouchfix.drawfix").Patch(t, new HarmonyMethod(pre));
                 Refl.Info("drawfix: patched " + targets.Count + " ThingIcon overload(s)");
                 Refl.Info("drawfix: prefix on Verse.Widgets.ThingIcon (uiIcon repaired, icon material dropped)");
+
+                MethodInfo prefixDef = typeof(IconFieldFix).GetMethod("PrefixDef",
+                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                int getIconFor = 0;
+                foreach (MethodInfo m in widgets.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (m.Name != "GetIconFor") continue;
+                    ParameterInfo[] ps = m.GetParameters();
+                    if (ps.Length == 0 || ps[0].ParameterType != _defType) continue;
+                    new Harmony("sleepsheep.waylith.agenttouchfix.drawfix.geticonfor").Patch(
+                        m, prefix: new HarmonyMethod(prefixDef));
+                    getIconFor++;
+                }
+                Refl.Info("drawfix: patched " + getIconFor + " GetIconFor(ThingDef, ...) overload(s)");
             }
             catch (Exception e) { Refl.Warn("drawfix: patch failed: " + e.Message); }
 

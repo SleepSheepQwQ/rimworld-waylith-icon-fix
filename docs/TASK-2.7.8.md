@@ -28,7 +28,7 @@
 失败再回落到原 `graphic.path`。索引 0 与 `ResolveIcon` 的
 `ExtractInnerGraphicFor(null) → SubGraphicFor(null) → subGraphics[0]` 保持一致。
 
-## 缺陷 3：包通道 DDS 未修（已改为 loader 前缀 + 全内容 sweep）
+## 缺陷 3：包通道 DDS（已修）
 
 `DdsFormatFix` 通过扫描 `<mod>/Textures/**/*.dds` 建索引（`BuildIndex`），
 而 Odyssey/Core 的贴图在 `Assets.zip` 内，`Data/<Dlc>/` 下没有 `Textures/` 目录，

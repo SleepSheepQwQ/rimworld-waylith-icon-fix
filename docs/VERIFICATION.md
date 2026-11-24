@@ -62,3 +62,24 @@ This closes the chain: the blank icons were the `CutoutComplexUI` material synth
 `_Color` into the icon restores the plain-texture path that `Cutout` species always used.
 
 Note: this confirmation is the user's own observation. No device log was read, and none was requested.
+
+## G. 2.7.8 release-candidate gates (2026-11-24)
+
+| Gate | Run | Result |
+|---|---|---|
+| public build, all unit suites, benchmark, package | `45312799965` | pass |
+| DDS loader prefix: BC4, DX10 BC3, DXT3, one-mip, DXT1 alpha, old 5/0 and 4/4 gates | `45309425523` | pass |
+| DdsFormatFix + DdsPrefixAlt enabled together | `45309757735` | pass |
+| AtlasBakeFix negative + sentinel-live positive | `45312477319` | 13/13 assertions; control 2/2, patched live kept/dead removed 1/1 |
+| unique-weapon 5/0 collection repair on prebuilt defs | `45312806973` | all four layouts 5/0 with 10 art / 0 mask instance picks; draw-path assertion superseded by the next run |
+| isolated ShadowFix PNG fallback | pending | disabled-DDS A/B gate |
+| `Assets.zip` first-pass sweep | `45313434195` | real-pack fixture; final result pending |
+
+The first uniqueicon attempt exposed a test-design error: it read the pre-existing `uiIcon`
+directly and bypassed `Widgets.ThingIcon`, where `IconFieldFix` runs. A second issue was found in
+the DDS sweep: a BC4 texture mis-created as BC7 is non-null, so "non-null" was not evidence of a
+healthy load. The final gate invokes the real draw path and checks the DDS header before deciding
+whether to reload. The shadow gate disables the higher-priority DDS repairs so it tests the fallback
+in isolation.
+
+The player-facing build remains conditional on every final row passing against the same DLL hash.

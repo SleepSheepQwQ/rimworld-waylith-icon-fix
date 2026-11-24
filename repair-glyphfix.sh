@@ -11,6 +11,8 @@
 # in RimWorld's mod list, then restart the game.
 set -euo pipefail
 
+trap 'code=$?; echo "GlyphFix setup failed (exit $code). No game files were changed unless installation had already started." >&2' ERR
+
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_ROOT=""
 FORCE=0
@@ -53,7 +55,11 @@ command -v dotnet >/dev/null 2>&1 || {
 }
 
 echo "[1/5] source checks"
-git -C "$ROOT" diff --check
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$ROOT" diff --check
+else
+    echo "source archive detected; git diff check skipped"
+fi
 
 if [ "$RUN_TESTS" -eq 1 ]; then
     echo "[2/5] tests"
@@ -82,8 +88,10 @@ ZIP="$ROOT/dist/GlyphFix.zip"
 rm -f "$ZIP"
 if command -v zip >/dev/null 2>&1; then
     (cd "$ROOT/dist" && zip -qr "$ZIP" GlyphFix)
+elif command -v python3 >/dev/null 2>&1; then
+    (cd "$ROOT/dist" && python3 -m zipfile -c "$ZIP" GlyphFix)
 else
-    echo "warning: zip is not installed; staged mod remains at $STAGE" >&2
+    echo "warning: neither zip nor python3 is installed; staged mod remains at $STAGE" >&2
     echo "         Termux: pkg install zip" >&2
 fi
 

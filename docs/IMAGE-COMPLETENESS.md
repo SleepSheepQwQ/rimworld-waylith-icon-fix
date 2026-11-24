@@ -36,7 +36,7 @@ successful repair.
 | Unique weapon: collection folder used as texture path | implemented | `IconVariantPath`; TexSt + uniqueicon gate |
 | Unique weapon: pack DDS loaded before the prefix | implemented | `DdsPrefixAlt.SweepContent` enumerates loose and pack files |
 | Later-mod `BadTex` hides an earlier-mod texture | implemented | `ContentFallbackFix` treats `BadTex` as a local miss |
-| Static atlas keeps a transparent tile for a failed blit | implemented | negative control + pure decision tests; positive control under CI audit |
+| Static atlas keeps a transparent tile for a failed blit | implemented | run `45312477319`: control 2/2 tiles; patched live kept/dead removed 1/1 |
 
 ## Deliberate limits
 
@@ -52,5 +52,5 @@ successful repair.
 ## Release rule
 
 2.7.8 is releasable only when the public build, DDS prefix gate, shadow gate, unique-weapon positive
-   gate, and Atlas positive/negative gates all pass with the exact DLL md5 recorded in
-   `docs/VERIFICATION.md`.
+   gate, real-pack gate, and Atlas positive/negative gates all pass with the exact DLL md5 recorded
+   in `docs/VERIFICATION.md`.
