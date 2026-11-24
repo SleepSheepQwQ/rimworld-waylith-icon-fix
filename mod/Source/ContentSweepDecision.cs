@@ -23,10 +23,15 @@ namespace AgentTouchFix
             return key.Length == 0 || key.EndsWith("/", StringComparison.Ordinal) ? null : key;
         }
 
-        /// <summary>Missing, null, and BaseContent.BadTex all need one loader retry.</summary>
-        internal static bool Retry(bool present, bool isNull, bool isBadTex)
+        /// <summary>
+        /// Reload when the header says the shipped loader will mis-map the file, or when the current
+        /// content is not drawable. A non-null texture is not enough evidence: a BC4 file mis-created
+        /// as BC7 is non-null but unreadable. A texture already owned by the prefix is never rebuilt.
+        /// </summary>
+        internal static bool NeedsLoaderRepair(bool alreadyOwned, bool headerNeedsRepair,
+                                                bool contentUsable)
         {
-            return !present || isNull || isBadTex;
+            return !alreadyOwned && (headerNeedsRepair || !contentUsable);
         }
     }
 }

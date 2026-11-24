@@ -18,10 +18,10 @@ another: they all look like "this sprite is blank". The table below separates th
 | Half of a weapon's icons are dark tiles | masks enter `Graphic_Collection.subGraphics`; `thingIDNumber % n` picks one | `10/5 -> 5/0`, run 44669186310 | 2.6.4 |
 | A whole animal is missing (mod content) | `Graphic_Multi` asks `<path>_east`; the leaked key is `…_east.png` | `0/4 -> 4/4`, run 44738256380 | 2.6.4 |
 | Male ibex / longsword / bullet have no texture | lookups are **ordinal**; the shipped data spells `IbexMALE`, `Longsword`, `Bullet_Big` | 2709 texPaths vs 3418 keys, run 44738256380 | 2.6.5 |
-| A mod's weapon art is blank | a same-named `.dds` makes `ShadowedByDds` drop the `.png`, and the DDS then fails | `Shadow hit=False`, run 44738256380 | no |
-| A BC5 mask tints the wrong area | every DX10 header is treated as BC7; BC5 payload read as BC7 | `IndexOutOfRangeException`, run 44738256380 | no |
-| Anything drawn small turns transparent | 1-mip BC files get a 9-level image with only level 0 written; BC cannot mip-generate | `bc1_mip0_only 0/2048`, run 44746260732 | no |
-| A building is permanently invisible | atlas registers the tile before blitting; a failed blit leaves a transparent tile that replaces the source | `StaticTextureAtlas.cs:164-171` vs `:492` | no |
+| A mod's weapon art is blank | a same-named `.dds` makes `ShadowedByDds` drop the `.png`, and the DDS then fails | `Shadow hit=False`, run 44738256380 | `ShadowFix`, 2.7.8 |
+| A BC5 mask tints the wrong area | every DX10 header is treated as BC7; BC5 payload read as BC7 | `IndexOutOfRangeException`, run 44738256380 | `DdsPrefixAlt`, run 45309425523 |
+| Anything drawn small turns transparent | 1-mip BC files get a 9-level image with only level 0 written; BC cannot mip-generate | `bc1_mip0_only 0/2048`, run 44746260732 | `DdsPrefixAlt`, 2.7.8 |
+| A building is permanently invisible | atlas registers the tile before blitting; a failed blit leaves a transparent tile that replaces the source | `StaticTextureAtlas.cs:164-171` vs `:492` | `AtlasBakeFix`, 2.7.8 |
 | Weird flat/grey shading in UI | unregistered shader ⇒ `Default` (0 properties) ⇒ `GenUI` halves the colour and drops the mask | `ShaderUtility.cs:9-20`, `GenUI.cs:200-211` | partial |
 | Motes/effects with wrong look | 11 of 63 `ShaderDatabase` shaders are absent and fall back to `Default` | `docs/DIAGNOSIS.md` §9 | no |
 
@@ -61,10 +61,10 @@ the asset it needs actually exists.
 
 | Mechanism | Patch target | Cost / risk | Status |
 |---|---|---|---|
-| DDS format mapping (DX10 -> BC7, DXT3/BC4/BC5) | generic postfix on `ContentFinder<Texture2D>.Get`, or `ModDdsLoader.TryLoadDds` | low - decoders are self-contained | in progress (`DdsFormatFix`) |
-| Hollow mip chains | decode to RGBA32 and upload a CPU-built chain, or fix up after `NewFileTexture` | medium - CPU mip generation, or block compression | planned |
-| `.dds` shadowing a `.png` | prefix `ModContentLoader.ShadowedByDds`: do not shadow when the DDS cannot be decoded | low, but needs a header cache to avoid extra IO on 2000+ files | planned |
-| Atlas tile registered before it is drawn | prefix `StaticTextureAtlas.Bake` with `EnsureGpuResident()`, dropping tiles that fail | high - engine internals, runs on the boot path | not attempted |
+| DDS format mapping (DX10 -> BC7, DXT3/BC4/BC5) | `ModDdsLoader.TryLoadDds` prefix | low - decoders are self-contained | implemented (`DdsPrefixAlt`) |
+| Hollow mip chains | decode to RGBA32 and upload a CPU-built chain | medium - CPU mip generation, or block compression | implemented (`DdsPrefixAlt`) |
+| `.dds` shadowing a `.png` | prefix `ModContentLoader.ShadowedByDds`: do not shadow when the DDS cannot be decoded | low, with a header cache | implemented (`ShadowFix`) |
+| Atlas tile registered before it is drawn | postfix `StaticTextureAtlas.Bake`, drop tiles that cannot be resident | high - engine internals, runs on the boot path | implemented (`AtlasBakeFix`) |
 | 11 missing shaders | ship `Shaders/*.glsl`, or map the name onto an existing shader | **the sources do not exist in the package** - this one is missing assets, not a missing hook | not possible as-is |
 | sRGB / VkFormat table | static pure functions in `TexturePixelData` | very wide blast radius for an unclear gain | not attempted |
 

@@ -196,11 +196,11 @@ The patch is a `Priority.Low` postfix on `Bake(bool)` that re-checks the same pr
 on (`EnsureGpuResident()`, with one `FinishPendingBuild()` retry), unregisters the tiles that fail,
 nulls the page cache keys and clears `Graphic.replacementInfoCache`.
 
-**What is not proven:** the positive control - that healthy textures still end up in the atlas. The GPU
-job reaches `Glfw.Init()` but dies in `Brutal.VulkanApi.Vulkan`'s type initializer because the port's
-`libvulkanshim.so` is arm64-only. Until a device run shows healthy tiles surviving, the module stays on
-branch `atlasfix` and out of the released zip; its failure mode is safe (dropping a tile only costs
-draw calls) but unmeasured, and this mod does not ship unmeasured performance changes.
+**Positive control:** the GPU job reaches `Glfw.Init()` but the hosted runner cannot create a Vulkan
+window surface, so that path cannot prove a healthy tile survives. The 2.7.8 release-candidate gate
+uses a sentinel-resident texture on the shipped managed types instead; its result is recorded in
+`VERIFICATION.md`. The failure mode remains safe: dropping a tile only costs atlas draw calls and the
+source texture is used instead.
 
 ### 13. Why the CutoutComplexUI material draws nothing (chain walk, static)
 

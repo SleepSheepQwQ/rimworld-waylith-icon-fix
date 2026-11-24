@@ -2,12 +2,24 @@
 
 **English** · [简体中文](README.zh-CN.md) · [Русский](README.ru.md)
 
-Two rendering bugs and one instance-level icon gap in the Waylith-based Android port, small hooks,
-no engine changes.
+Runtime image-recovery patches for the Waylith-based Android port: small hooks, no engine changes,
+no APK rebuild.
 
 > Formerly `AgentTouchFix`. Same code, better name.
 
 ## What it fixes
+
+2.7.8 covers the complete known recovery chain used by the four reported surfaces:
+
+- **build menu** — `BadTex`, unrenderable `CutoutComplexUI`, wrong collection/texture paths;
+- **colonist and item tables** — Thing/def icon fallback, cases where only a material or name is bad;
+- **animal icons** — `Graphic_Multi`, directional masks, double extensions, and Thing-level
+  `CutoutComplexUI`;
+- **Odyssey unique weapons** — `.png.dds`, DX10 BC4 masks, `Graphic_Random`, and pack-backed DDS.
+
+The broader layers also repair DDS formats and hollow mip chains, DDS/PNG shadowing, `BadTex`
+entries that hide an earlier mod's texture, and transparent static-atlas replacement tiles. The
+complete symptom-to-gate matrix is in `docs/IMAGE-COMPLETENESS.md`.
 
 **1. Blank build-menu icons.** `ThingDef.uiIcon` ends up as `BaseContent.BadTex` because the
 graphic material resolves to a `CutoutComplexUI` material whose texture never becomes readable on
@@ -96,6 +108,22 @@ unaffected.
 ## Install
 
 Drop `GlyphFix` into `Mods/`, enable it, restart. Nothing else to configure.
+
+To run the tested build/package flow from this checkout:
+
+```bash
+./repair-glyphfix.sh
+```
+
+To stage it into a user-supplied Mods directory (never a hard-coded device path):
+
+```bash
+./repair-glyphfix.sh --install /path/to/RimWorld/Mods
+```
+
+The installer refuses to overwrite an existing install unless `--force` is supplied; with
+`--force`, the old folder is moved to a timestamped backup first. It does not edit
+`ModsConfig.xml`; enable GlyphFix in the game's mod list and restart.
 
 ## Requirements
 

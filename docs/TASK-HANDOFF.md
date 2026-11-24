@@ -3,7 +3,7 @@
 ## 一句话
 
 本仓库是 **GlyphFix**：一个 Harmony 模组，修复 RimWorld 1.7 安卓移植版 `com.ports1de.waylith`
-（Waylith 引擎，1.7.9795）的图标/贴图渲染缺陷。当前发布版 **2.7.7**。
+（Waylith 引擎，1.7.9795）的图标/贴图渲染缺陷。当前发布版 **2.7.8**。
 
 ## 现状
 
@@ -27,9 +27,9 @@
 | `IbexMale_east` | miss | hit `IbexMALE_east` |
 | DXT3 | miss | hit 8×8 |
 
-## 当前冲刺：2.7.8
+## 2.7.8
 
-三个已定位、未修的缺陷（详见 `docs/TASK-2.7.8.md`）：
+三个残缺陷均已实现（详见 `docs/TASK-2.7.8.md`）：
 
 1. `IconFieldFix` 的 Thing 分支从不执行：`Thing.def` 是公有**字段**，代码却用只找属性的
    `Prop(arg, "def")`
@@ -37,6 +37,10 @@
    `subGraphics[i].path`，所以 `ContentFinder.Get(目录)` 必 miss
 3. `DdsFormatFix` 只扫描散装 `Textures/**`，`Assets.zip` 内的包通道 DDS 不在范围，BC4/BC5 掩码
    仍被当 BC7 解 → `BadTex`
+
+修复后：loader 前缀负责散装与包通道；全内容 sweep 只重载 unusable DDS；
+`ContentFallbackFix` 不再让 `BadTex` 阻止查找前序模组；`AtlasBakeFix` 移除失败贴图留下的透明
+tile。最终门禁见 `docs/IMAGE-COMPLETENESS.md` 与 `docs/VERIFICATION.md`。
 
 ## 硬约束
 

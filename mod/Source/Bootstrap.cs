@@ -40,6 +40,7 @@ namespace AgentTouchFix
                 ShadowFix.Install();
                 ShadowFix.Repair();
                 CollectionFix.Install();
+                CollectionFix.RepairLoaded();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
                 DrawGuardFix.Install();

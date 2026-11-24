@@ -1,9 +1,13 @@
 # 2.7.8 — 独特武器图标的三个残缺陷
 
+状态（2026-11-24）：三项代码均已实现。散装 DDS 真宿主门禁已通过；包通道 sweep 改为
+`ModContentPack.GetAllFilesForMod`，uniqueicon 正例与 Atlas 正例仍在最终 CI 验证中。具体 run id
+以 `docs/VERIFICATION.md` 为准。
+
 背景与实测：配套仓库 `docs/UNIQUE-WEAPON-ICON.md`（含 CI run 45237630449 的原始输出）。
 所有行号指 1.7.9795 反编译：`rimworld-waylith-re/defgraphic/src/Assembly-CSharp.decompiled.cs`。
 
-## 缺陷 1：Thing 分支从不执行
+## 缺陷 1：Thing 分支从不执行（已修）
 
 `IconFieldFix` 用 `Prop(arg, "def")` 解引用实例的 def，但 `Prop` 只走属性解析；
 `Verse.Thing.def` 是**公有字段**（`Thing` 类定义处 `public ThingDef def;`）。
@@ -13,7 +17,7 @@
 修法：新增字段解析（`Member.Resolve(t, "def", needWrite:false, preferField:true)`），在 Prefix 里替换
 `Prop(arg,"def")`。
 
-## 缺陷 2：集合取图用了目录路径
+## 缺陷 2：集合取图用了目录路径（已修）
 
 `IconFieldFix.Fill` 取 `graphic.path`。对 `Graphic_Collection`（含 `Graphic_Random`），
 `path` 是**文件夹**（`Graphic_Collection.Init` 里赋值），真实变体名在每个
@@ -24,7 +28,7 @@
 失败再回落到原 `graphic.path`。索引 0 与 `ResolveIcon` 的
 `ExtractInnerGraphicFor(null) → SubGraphicFor(null) → subGraphics[0]` 保持一致。
 
-## 缺陷 3：包通道 DDS 未修
+## 缺陷 3：包通道 DDS 未修（已改为 loader 前缀 + 全内容 sweep）
 
 `DdsFormatFix` 通过扫描 `<mod>/Textures/**/*.dds` 建索引（`BuildIndex`），
 而 Odyssey/Core 的贴图在 `Assets.zip` 内，`Data/<Dlc>/` 下没有 `Textures/` 目录，
@@ -36,9 +40,14 @@
   真实格式分流；这样散装与包通道同源修复。
 - B. 保留索引，改成在 `ContentPack` 加载时按条目名匹配并就地纠正格式（复杂，不推荐）。
 
+实际实现采用 A：`DdsPrefixAlt` patched `TryLoadDds(VirtualFile)`。模块初始化太晚时，
+`SweepContent` 不再直接走磁盘目录，而是调用引擎的
+`ModContentPack.GetAllFilesForMod(mod, "Textures/", null, null)`，同时枚举散装与 `Assets.zip`
+条目；只重载 contentList 中 absent/null/BadTex 的 key，再由同一前缀完成修复。
+
 ## 验收（必须全部满足）
 
-1. `dotnet test tests/TexSt` 全绿（现有 258 条不回归）。
+1. `dotnet test tests/TexSt` 全绿。
 2. 新增 fixture 门禁：`.png.dds` 双扩展名 + DX10 BC4 掩码 + `Graphic_Random` + `CutoutComplex`
    - 断言 `subGraphics.Length == 5`（掩码被 `CollectionFix` 丢弃）
    - 断言 `subGraphics[0]` 名字不以 `_m` 结尾
@@ -50,3 +59,10 @@
 ## 反例控制
 
 把 `VariantPath` 临时改为恒返回 null，以上第 2 条必须重新变红；否则说明测试没有咬住缺陷。
+
+## 额外覆盖
+
+- `DdsPrefixAlt.Owns` 让 `DdsFormatFix` 在 loader 前缀成功后跳过，避免同一 DDS 被解码/上传两次。
+- `ContentFallbackFix` 把此后加载模组的 `BadTex` 当作“本 holder 未命中”，允许继续查找前面模组
+  的健康同名贴图。
+- `DdsPrefixAlt.SweepContent` 的 key 解析和 retry 判定由 `ContentSweepDecision` 单测覆盖。

@@ -511,9 +511,7 @@ namespace AgentTouchFix
                         {
                             try { _badTex = badField.GetValue(null); } catch { }
                         }
-                        if (!ContentSweepDecision.Retry(present, current == null,
-                                                        ReferenceEquals(current, _badTex))) continue;
-                        unusable++;
+                        bool currentUsable = present && current != null && !ReferenceEquals(current, _badTex);
 
                         FileInfo info = pair.Value as FileInfo;
                         if (info == null) continue;
@@ -522,7 +520,10 @@ namespace AgentTouchFix
                         byte[] body;
                         AltHeader h;
                         AltChoice choice;
-                        if (!Analyse(virtualFile, out body, out h, out choice)) continue;
+                        bool headerRepair = Analyse(virtualFile, out body, out h, out choice);
+                        if (!ContentSweepDecision.NeedsLoaderRepair(Owns(current), headerRepair,
+                                                                    currentUsable)) continue;
+                        if (!currentUsable) unusable++;
 
                         object item;
                         try { item = loadItem.Invoke(null, new[] { virtualFile }); }

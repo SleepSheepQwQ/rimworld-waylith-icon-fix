@@ -25,14 +25,17 @@ namespace AgentTouchFix.Tests
         }
 
         [Theory]
-        [InlineData(false, true, false, true)]   // absent entry: loader retry may fill it
-        [InlineData(true, true, false, true)]    // present but null
-        [InlineData(true, false, true, true)]    // present but BadTex
-        [InlineData(true, false, false, false)]  // already drawable: never reload
-        public void OnlyAbsentOrUnusableEntriesAreRetried(bool present, bool isNull,
-                                                          bool isBadTex, bool expected)
+        [InlineData(false, true, true, true)]    // header says the loader maps it wrongly
+        [InlineData(false, false, false, true)]  // absent/null/BadTex: one retry
+        [InlineData(false, false, true, false)]  // already drawable and correctly headed
+        [InlineData(true, true, false, false)]   // prefix already built this object
+        public void OnlyUnownedOrHeaderBrokenEntriesAreRetried(bool alreadyOwned,
+                                                               bool headerNeedsRepair,
+                                                               bool contentUsable,
+                                                               bool expected)
         {
-            Assert.Equal(expected, ContentSweepDecision.Retry(present, isNull, isBadTex));
+            Assert.Equal(expected,
+                ContentSweepDecision.NeedsLoaderRepair(alreadyOwned, headerNeedsRepair, contentUsable));
         }
     }
 }
