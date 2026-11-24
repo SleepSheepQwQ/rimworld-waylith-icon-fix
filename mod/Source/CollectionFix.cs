@@ -122,32 +122,62 @@ namespace AgentTouchFix
 
                 Member graphicMember = Member.Resolve(thingDef, "graphic", false, true);
                 if (graphicMember == null) return;
+                MethodInfo resolveIcon = null;
+                for (Type t = thingDef; t != null && resolveIcon == null; t = t.BaseType)
+                {
+                    resolveIcon = t.GetMethod("ResolveIcon",
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                        null, Type.EmptyTypes, null);
+                }
 
                 var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
-                int scanned = 0, collections = 0, before = 0, after = 0;
+                var repaired = new HashSet<object>(ReferenceEqualityComparer.Instance);
+                int scanned = 0, collections = 0, before = 0, after = 0, resolved = 0;
                 foreach (object def in defs)
                 {
                     if (def == null) continue;
                     scanned++;
                     object graphic = graphicMember.Get(def);
                     object collection = InnerCollection(graphic);
-                    if (collection == null || !seen.Add(collection)) continue;
-                    collections++;
+                    if (collection == null) continue;
 
-                    Array current = _subGraphics.GetValue(collection) as Array;
-                    if (current == null) continue;
-                    before += current.Length;
-                    if (FilterInPlace(collection))
-                        after += ((Array)_subGraphics.GetValue(collection)).Length;
-                    else
-                        after += current.Length;
+                    if (seen.Add(collection))
+                    {
+                        collections++;
+                        Array current = _subGraphics.GetValue(collection) as Array;
+                        if (current == null) continue;
+                        before += current.Length;
+                        if (FilterInPlace(collection))
+                        {
+                            repaired.Add(collection);
+                            after += ((Array)_subGraphics.GetValue(collection)).Length;
+                        }
+                        else
+                        {
+                            after += current.Length;
+                        }
+                    }
+
+                    if (resolveIcon != null && repaired.Contains(collection))
+                    {
+                        try
+                        {
+                            resolveIcon.Invoke(def, null);
+                            resolved++;
+                        }
+                        catch (Exception e)
+                        {
+                            if (Interlocked.Exchange(ref _warned, 1) == 0)
+                                Refl.Warn("collection: ResolveIcon failed: " + e.Message);
+                        }
+                    }
                 }
 
                 if (collections > 0)
                 {
                     Refl.Info("collection: existing graphic scan defs=" + scanned
                               + " collections=" + collections + " variants=" + before
-                              + " -> " + after);
+                              + " -> " + after + " resolved=" + resolved);
                 }
             }
             catch (Exception e)
