@@ -399,7 +399,7 @@ internal static class StartupHook
     private static void CaptureIcon(ThingDef def, string phase, Dictionary<string, object> rec)
     {
         Texture2D tex = def.uiIcon;
-        rec["uiIcon." + phase] = new Dictionary<string, object>
+        Section(rec, "uiIcon")[phase] = new Dictionary<string, object>
         {
             ["tex"] = Name(tex),
             ["null"] = tex == null,
@@ -413,7 +413,7 @@ internal static class StartupHook
     private static void CaptureMaterial(ThingDef def, string phase, Dictionary<string, object> rec)
     {
         Material mat = def.uiIconMaterial;
-        rec["material." + phase] = new Dictionary<string, object>
+        Section(rec, "material")[phase] = new Dictionary<string, object>
         {
             ["name"] = Name(mat),
             ["null"] = mat == null,
@@ -421,6 +421,19 @@ internal static class StartupHook
             ["mainTex"] = mat == null ? null : Name(mat.mainTexture),
             ["complexUi"] = IsComplexUi(mat)
         };
+    }
+
+    private static Dictionary<string, object> Section(Dictionary<string, object> record, string name)
+    {
+        Dictionary<string, object> section;
+        if (!record.TryGetValue(name, out object value) ||
+            !(value is Dictionary<string, object> existing))
+        {
+            section = new Dictionary<string, object>();
+            record[name] = section;
+            return section;
+        }
+        return existing;
     }
 
     private static void ReportHarmony()

@@ -139,6 +139,15 @@ jobs:
         run: |
           set -uo pipefail
           CFG="$HOME/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+          # The control step removes this directory to prove the unpatched state. Stage the current
+          # build again so the second boot is genuinely the patched side of the A/B.
+          DLL=$(find glyphfix/mod/bin/Release -name 'GlyphFix.dll' | head -1)
+          test -n "$DLL"
+          mkdir -p run/Mods/glyphfix/About run/Mods/glyphfix/Assemblies
+          cp glyphfix/mod/About/About.xml run/Mods/glyphfix/About/
+          cp "$DLL" run/Mods/glyphfix/Assemblies/
+          sha256sum run/Mods/glyphfix/Assemblies/GlyphFix.dll
+
           python3 - "$GITHUB_WORKSPACE/.waylith-host/ci/ModsConfig.xml" \
                     "$CFG/ModsConfig.xml" <<'PY'
           import sys
