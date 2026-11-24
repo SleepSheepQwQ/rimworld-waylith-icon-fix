@@ -229,6 +229,18 @@ namespace AgentTouchFix
             catch (Exception e) { Refl.Warn("ddsalt: install failed: " + Short(e)); }
         }
 
+        /// <summary>
+        /// Bootstrap runs after active mods and their content holders exist. An earlier module-
+        /// initializer sweep can legitimately happen before Assets.zip is mounted; that attempt must
+        /// not consume the one-shot budget. This entry forces the post-load pass.
+        /// </summary>
+        internal static void SweepLoadedContent()
+        {
+            if (!_ready || _off) return;
+            _swept = false;
+            SweepContent();
+        }
+
         // ------------------------------------------------------------------ prefix
 
         /// <summary>

@@ -35,6 +35,7 @@ namespace AgentTouchFix
                 CaseFix.Install();
                 DdsFormatFix.Install();
                 DdsPrefixAlt.Install();
+                DdsPrefixAlt.SweepLoadedContent();
                 AtlasBakeFix.Init();
                 AtlasBakeFix.Install();
                 ShadowFix.Install();

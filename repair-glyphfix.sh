@@ -19,7 +19,17 @@ FORCE=0
 RUN_TESTS=1
 
 usage() {
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    cat <<'EOF'
+Build, verify, package, and optionally install GlyphFix 2.7.8.
+
+Usage:
+  ./repair-glyphfix.sh
+  ./repair-glyphfix.sh --install /path/to/RimWorld/Mods
+  ./repair-glyphfix.sh --install /path/to/RimWorld/Mods --force
+  ./repair-glyphfix.sh --skip-tests
+
+The script never edits ModsConfig.xml. Enable GlyphFix in RimWorld's mod list, then restart.
+EOF
 }
 
 while [ "$#" -gt 0 ]; do
