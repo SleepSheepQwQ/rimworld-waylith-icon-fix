@@ -11,13 +11,16 @@
 
   <ItemGroup>
     <Compile Include="../../mod/Source/TexStMath.cs" Link="TexStMath.cs" />
+    <Compile Include="../../mod/Source/ShadowDdsDecision.cs" Link="ShadowDdsDecision.cs" />
     <Compile Include="../../mod/Source/DdsFormat.cs" Link="DdsFormat.cs" />
     <Compile Include="../../mod/Source/IconPathDecision.cs" Link="IconPathDecision.cs" />
     <Compile Include="../../mod/Source/MaskName.cs" Link="MaskName.cs" />
+    <Compile Include="../../mod/Source/IconVariantPath.cs" Link="IconVariantPath.cs" />
     <Compile Include="../../mod/Source/CollectionVariants.cs" Link="CollectionVariants.cs" />
     <Compile Include="../../mod/Source/ExtensionFallback.cs" Link="ExtensionFallback.cs" />
     <Compile Include="../../mod/Source/IconFallbackDecision.cs" Link="IconFallbackDecision.cs" />
     <Compile Include="../../mod/Source/TestSpawnDecision.cs" Link="TestSpawnDecision.cs" />
+    <Compile Include="../../mod/Source/AtlasBakeDecision.cs" Link="AtlasBakeDecision.cs" />
     <Compile Include="../../mod/Source/MemberChoice.cs" Link="MemberChoice.cs" />
     <Compile Include="../../mod/Source/Member.cs" Link="Member.cs" />
   </ItemGroup>

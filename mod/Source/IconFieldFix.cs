@@ -51,6 +51,10 @@ namespace AgentTouchFix
         // is what 2.6.1 got wrong: it asked for an instance field of *this* type only and treated a
         // null answer as "the game has no such member". docs/REFLECTION-FACTS.md has the metadata.
         private static Member _mIcon, _mMat, _mGraphic, _mGraphicData, _mTexPath, _mPath, _mDefName;
+        private static Member _mSubGraphics;
+        private static Type _subGraphicsType;
+        private static Member _mThingDef;
+        private static Type _thingArgType;
         private static Type _defType, _badTexType;
         private static object _badTex;
         private static MethodInfo _finder;
@@ -95,9 +99,15 @@ namespace AgentTouchFix
                 // Widgets.ThingIcon(Rect, Thing, ...) passes a Thing: repair the ThingDef behind it.
                 // Only worth a reflected property walk when the argument is not already a ThingDef -
                 // the hot overload then never pays for it.
-                if (arg.GetType().Name != "ThingDef")
+                if (_defType == null || !_defType.IsInstanceOfType(arg))
                 {
-                    object innerDef = Prop(arg, "def");
+                    Type argType = arg.GetType();
+                    if (argType != _thingArgType)
+                    {
+                        _thingArgType = argType;
+                        _mThingDef = Member.Resolve(argType, "def", needWrite: false, preferField: true);
+                    }
+                    object innerDef = _mThingDef == null ? null : _mThingDef.Get(arg);
                     if (innerDef != null && innerDef != arg) def = innerDef;
                     if (def != arg && _done.Contains(def)) { Remember(arg); return; }
                 }
@@ -148,7 +158,12 @@ namespace AgentTouchFix
         {
             object graphic = _mGraphic == null ? null : _mGraphic.Get(def);
             string path = null;
-            if (graphic != null && _mPath != null) path = _mPath.Get(graphic) as string;
+            string fallback = null;
+            if (graphic != null && _mPath != null)
+            {
+                fallback = _mPath.Get(graphic) as string;
+                path = VariantPath(graphic, fallback);
+            }
             if (string.IsNullOrEmpty(path) && _mGraphicData != null && _mTexPath != null)
             {
                 object gd = _mGraphicData.Get(def);
@@ -169,6 +184,32 @@ namespace AgentTouchFix
             if (n <= 5) Refl.Info("drawfix: uiIcon <- " + path + " on " + DefName(def));
             else if (n % 100 == 0) Refl.Info("drawfix: filled " + n + " icons at draw time");
             return true;
+        }
+
+        /// <summary>
+        /// Prefer the concrete path of the same variant ResolveIcon uses (subGraphics[0] after
+        /// CollectionFix removed masks), then fall back to the graphic's own path.
+        /// </summary>
+        private static string VariantPath(object graphic, string fallback)
+        {
+            Type graphicType = graphic.GetType();
+            if (graphicType != _subGraphicsType)
+            {
+                _subGraphicsType = graphicType;
+                _mSubGraphics = Member.Resolve(graphicType, "subGraphics", needWrite: false, preferField: true);
+            }
+            object value = _mSubGraphics == null ? null : _mSubGraphics.Get(graphic);
+            Array array = value as Array;
+            if (array == null || array.Length == 0 || _mPath == null) return fallback;
+
+            var paths = new List<string>(array.Length);
+            for (int i = 0; i < array.Length; i++)
+            {
+                object sub = array.GetValue(i);
+                if (sub == null) continue;
+                paths.Add(_mPath.Get(sub) as string);
+            }
+            return IconVariantPath.Choose(paths, fallback);
         }
 
         private static object Load(string path)
@@ -276,21 +317,6 @@ namespace AgentTouchFix
                 }
             }
             catch (Exception e) { WarnOnce("ContentFinder: " + e.Message); }
-        }
-
-        private static object Prop(object o, string name)
-        {
-            if (o == null) return null;
-            try
-            {
-                for (Type c = o.GetType(); c != null; c = c.BaseType)
-                {
-                    var p = c.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (p != null) return p.GetValue(o, null);
-                }
-            }
-            catch { }
-            return null;
         }
 
         private static void WarnOnce(string m)

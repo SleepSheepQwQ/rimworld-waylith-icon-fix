@@ -47,6 +47,12 @@ jobs:
       - name: Unit tests (shader math + icon routing)
         run: dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
 
+      - name: Unit tests (DDS prefix decoder + DXGI mapping + mip chains)
+        run: dotnet test tests/DdsAltSt/DdsAltSt.csproj -c Release -v minimal
+
+      - name: Unit tests (texture extension fallback policy)
+        run: dotnet test tests/ExtFb/ExtFb.csproj -c Release -v minimal
+
       - name: Build the mod
         run: dotnet build mod/AgentTouchFix.csproj -c Release -v minimal
 

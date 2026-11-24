@@ -34,14 +34,20 @@ namespace AgentTouchFix
                 ContentFallbackFix.Install();
                 CaseFix.Install();
                 DdsFormatFix.Install();
+                DdsPrefixAlt.Install();
                 ShadowFix.Install();
                 ShadowFix.Repair();
                 CollectionFix.Install();
                 IconFallbackFix.Init();
                 IconFallbackFix.Install();
+                DrawGuardFix.Install();
+
+                PatchReport.Log(Refl.T("Verse.Widgets"), "ThingIcon");
+                PatchReport.Log(Refl.T("Verse.Widgets"), "GetIconFor");
+                PatchReport.Log(Refl.T("Verse.Graphic_Collection"), "Init");
                 TestSpawn.Install();
 
-                Refl.Info("BUILD " + typeof(Bootstrap).Assembly.GetName().Version + " iconfallback+ddsformat+casefix+shadowfix"
+                Refl.Info("BUILD " + typeof(Bootstrap).Assembly.GetName().Version + " iconfallback+ddsformat+casefix+shadowfix+drawguard"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
                           + " + collection variant mask filter"

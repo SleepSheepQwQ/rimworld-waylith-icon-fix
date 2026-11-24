@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <Compile Include="../../mod/Source/IconFieldFix.cs" Link="mod/IconFieldFix.cs" />
+    <Compile Include="../../mod/Source/MaskName.cs" Link="mod/MaskName.cs" />
+    <Compile Include="../../mod/Source/IconVariantPath.cs" Link="mod/IconVariantPath.cs" />
     <Compile Include="../../mod/Source/IconPathDecision.cs" Link="mod/IconPathDecision.cs" />
     <Compile Include="../../mod/Source/Member.cs" Link="mod/Member.cs" />
     <Compile Include="../../mod/Source/MemberChoice.cs" Link="mod/MemberChoice.cs" />
