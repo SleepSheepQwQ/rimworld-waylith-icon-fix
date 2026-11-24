@@ -57,6 +57,19 @@ namespace AgentTouchFix
         private const uint PfLuminance = 0x20000, FlagsMipCount = 0x20000;
 
         /// <summary>
+        /// Strip only the final extension, including the four-character ".jpeg". Paths are normalized
+        /// by the caller; a leading dot is a filename, not an extension.
+        /// </summary>
+        internal static string BaseName(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            int slash = path.LastIndexOfAny(new[] { '/', '\\' });
+            int dot = path.LastIndexOf('.');
+            if (dot <= slash + 1 || dot == path.Length - 1) return null;
+            return path.Substring(0, dot);
+        }
+
+        /// <summary>
         /// Read a header out of <paramref name="head"/>, of which <paramref name="length"/> bytes are
         /// real. Returns false when the buffer is too short to be a DDS header at all; a header that
         /// parses but names an unsupported format comes back Valid with Decodable == false.

@@ -16,6 +16,17 @@ namespace AgentTouchFix.Tests
     /// </summary>
     public class ShadowDdsTests
     {
+        [Theory]
+        [InlineData("Textures/Thing.png", "Textures/Thing")]
+        [InlineData("Textures/Thing.jpeg", "Textures/Thing")]
+        [InlineData("Textures/Thing.png.dds", "Textures/Thing.png")]
+        [InlineData(".hidden", null)]
+        [InlineData("Textures/.png", null)]
+        public void BaseNameRemovesExactlyOneExtension(string path, string expected)
+        {
+            Assert.Equal(expected, ShadowDds.BaseName(path));
+        }
+
         // ------------------------------------------------------------------ header building
 
         private const uint PfAlphaPixels = 0x1;

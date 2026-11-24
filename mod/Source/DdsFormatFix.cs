@@ -156,6 +156,7 @@ namespace AgentTouchFix
             if (!_ready || _off || _files == null) return false;
             if (typeof(T) != _texType) return false;
             if (string.IsNullOrEmpty(itemPath)) return false;
+            if (DdsPrefixAlt.Owns(__result)) return false;
 
             try
             {

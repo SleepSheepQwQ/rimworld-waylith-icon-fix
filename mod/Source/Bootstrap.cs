@@ -35,6 +35,8 @@ namespace AgentTouchFix
                 CaseFix.Install();
                 DdsFormatFix.Install();
                 DdsPrefixAlt.Install();
+                AtlasBakeFix.Init();
+                AtlasBakeFix.Install();
                 ShadowFix.Install();
                 ShadowFix.Repair();
                 CollectionFix.Install();
@@ -47,7 +49,8 @@ namespace AgentTouchFix
                 PatchReport.Log(Refl.T("Verse.Graphic_Collection"), "Init");
                 TestSpawn.Install();
 
-                Refl.Info("BUILD " + typeof(Bootstrap).Assembly.GetName().Version + " iconfallback+ddsformat+casefix+shadowfix+drawguard"
+                Refl.Info("BUILD " + typeof(Bootstrap).Assembly.GetName().Version
+                          + " iconfallback+ddsformat+casefix+shadowfix+atlasbake+drawguard"
                           + " (uiIcon fallback + CutoutComplexUI material dropped at draw time"
                           + " + miss-only texture extension fallback"
                           + " + collection variant mask filter"

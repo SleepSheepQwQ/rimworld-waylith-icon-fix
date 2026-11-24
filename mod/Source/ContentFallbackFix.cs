@@ -38,6 +38,8 @@ namespace AgentTouchFix
         // ContentFinder<Texture2D>.Get(string, bool) and ModContentHolder<Texture2D>.Get(string),
         // resolved on the closed generic types this port actually instantiates.
         private static MethodInfo _finderGet, _holderGet;
+        private static FieldInfo _badTexField;
+        private static object _badTex;
 
         [ThreadStatic] private static bool _busy;   // never start a second round from inside a retry
 
@@ -45,6 +47,10 @@ namespace AgentTouchFix
         {
             Type tex = Refl.T("UnityEngine.Texture2D") ?? Refl.T("Waylith.Rendering.Texture2D");
             if (tex == null) { Refl.Warn("contentfix: no Texture2D type to close ContentFinder`1 with"); return; }
+
+            Type baseContent = Refl.T("Verse.BaseContent");
+            _badTexField = baseContent?.GetField("BadTex", BindingFlags.Public | BindingFlags.Static)
+                           ?? baseContent?.GetField("BadTex", BindingFlags.NonPublic | BindingFlags.Static);
 
             // 1) the entry point Graphic_Single / Graphic_Multi call
             _finderGet = Closed(tex, "Verse.ContentFinder`1", "Get", new[] { typeof(string), typeof(bool) });
@@ -107,14 +113,14 @@ namespace AgentTouchFix
         /// <summary>ContentFinder&lt;Texture2D&gt;.Get(string itemPath, bool reportFailure).</summary>
         private static void OnFinderMiss(string itemPath, ref object __result)
         {
-            if (__result != null || _busy) return;
+            if (_busy || !Unusable(__result)) return;
             Fallback(itemPath, null, ref __result);
         }
 
         /// <summary>ModContentHolder&lt;Texture2D&gt;.Get(string path).</summary>
         private static void OnHolderMiss(object __instance, string path, ref object __result)
         {
-            if (__result != null || _busy || __instance == null) return;
+            if (_busy || __instance == null || !Unusable(__result)) return;
             Fallback(path, __instance, ref __result);
         }
 
@@ -134,7 +140,14 @@ namespace AgentTouchFix
                 try { found = ExtensionFallback.FirstHit(path, load, out hitPath, out tried); }
                 finally { _busy = false; }
 
-                if (found == null) return;
+                if (found == null)
+                {
+                    // A later mod's BaseContent.BadTex is non-null, so ContentFinder stops on it and
+                    // never asks earlier mods for the same key. Returning null here preserves the
+                    // useful "not found in this mod" contract and lets the engine continue its loop.
+                    result = null;
+                    return;
+                }
 
                 result = found;
                 Interlocked.Increment(ref _hits);
@@ -147,6 +160,23 @@ namespace AgentTouchFix
             {
                 if (Interlocked.Exchange(ref _warned, 1) == 0) Refl.Warn("contentfix: " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// Null and BaseContent.BadTex both mean "this holder has no drawable texture". The latter is a
+        /// valid non-null Texture2D, which is why ContentFinder's plain `if (val != null)` otherwise
+        /// treats the failed load as authoritative and hides a healthy same-key texture in an earlier
+        /// mod. BadTex is read lazily: BaseContent's static constructor may not have run at install.
+        /// </summary>
+        private static bool Unusable(object value)
+        {
+            if (value == null) return true;
+            if (_badTex == null)
+            {
+                try { _badTex = _badTexField?.GetValue(null); }
+                catch { }
+            }
+            return _badTex != null && ReferenceEquals(value, _badTex);
         }
 
         /// <summary>

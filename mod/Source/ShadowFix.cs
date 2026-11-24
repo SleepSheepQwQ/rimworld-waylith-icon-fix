@@ -309,7 +309,10 @@ namespace AgentTouchFix
                 if (string.IsNullOrEmpty(filename) || filename.Length <= 4) return true;
 
                 string norm = filename.Replace('\\', '/');
-                string relBase = norm.Substring(0, norm.Length - 4);   // 4 = every extension but .jpeg here
+                string relBase = ShadowDds.BaseName(norm);
+                if (relBase == null) return true;
+                int extensionLength = norm.Length - relBase.Length;
+                if (extensionLength <= 0 || extensionLength > 5) return true;
 
                 if (norm.EndsWith(".dds", StringComparison.OrdinalIgnoreCase))
                 {
@@ -329,7 +332,7 @@ namespace AgentTouchFix
 
                 // The image side: mirror the original's key computation before doing any work.
                 string key = norm.ToLowerInvariant();
-                string ddsKey = key.Substring(0, key.Length - 4) + ".dds";
+                string ddsKey = key.Substring(0, key.Length - extensionLength) + ".dds";
                 if (!ddsFiles.Contains(ddsKey)) return true;          // not shadowed anyway
 
                 string path = Find(relBase + ".dds");

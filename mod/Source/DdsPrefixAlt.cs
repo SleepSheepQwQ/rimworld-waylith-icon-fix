@@ -87,6 +87,7 @@ namespace AgentTouchFix
 
         private static Dictionary<string, object> _built;
         private static Dictionary<string, bool> _native;
+        private static object _badTex;
 
         private static int _repaired, _declined, _skipped, _warned;
 
@@ -328,6 +329,22 @@ namespace AgentTouchFix
         }
 
         /// <summary>
+        /// True when this loader-side module already built the object. DdsFormatFix uses this to stay
+        /// a fallback instead of decoding and uploading the same loose DDS a second time.
+        /// </summary>
+        internal static bool Owns(object texture)
+        {
+            if (texture == null || _built == null) return false;
+            try
+            {
+                foreach (object built in _built.Values)
+                    if (ReferenceEquals(built, texture)) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>
         /// Header first, body only when it can change the answer: the common case (BC7, a legacy
         /// DXT1/DXT5 with a complete chain, plain RGB, BC6H) is decided from 148 bytes and the file is
         /// never read again. That matters at startup, where every shipped .dds is asked for once.
@@ -387,10 +404,11 @@ namespace AgentTouchFix
         /// prefix installed at that point would never see the first pass, and a file whose load threw
         /// is simply absent from the holder, so nothing retries it.
         ///
-        /// ModContentHolder&lt;T&gt;.contentList is what ContentFinder reads, so the files whose header says
-        /// "wrong" are handed back to ModContentLoader&lt;T&gt;.LoadItem - which reaches
-        /// ModDdsLoader.TryLoadDds again, i.e. the same prefix - and the result replaces the entry or
-        /// fills the hole. Everything the header calls already right is never touched.
+        /// ModContentHolder&lt;T&gt;.contentList is what ContentFinder reads, so unusable DDS entries are
+        /// handed back to ModContentLoader&lt;T&gt;.LoadItem - which reaches ModDdsLoader.TryLoadDds
+        /// again, i.e. the same prefix. The file list comes from ModContentPack.GetAllFilesForMod,
+        /// not a directory walk: it includes loose Textures/ files and Assets.zip entries. A usable
+        /// current entry is never touched.
         /// </summary>
         private static void SweepContent()
         {
@@ -418,15 +436,38 @@ namespace AgentTouchFix
                 MethodInfo loadItem = loaderType.MakeGenericType(_texType)
                     .GetMethod("LoadItem", BindingFlags.Public | BindingFlags.Static);
                 if (loadItem != null && loadItem.GetParameters().Length != 1) loadItem = null;
+
+                MethodInfo allFiles = null;
+                foreach (MethodInfo candidate in packType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                {
+                    if (candidate.Name != "GetAllFilesForMod") continue;
+                    ParameterInfo[] ps = candidate.GetParameters();
+                    if (ps.Length == 4 && ps[0].ParameterType == packType && ps[1].ParameterType == typeof(string))
+                    {
+                        allFiles = candidate;
+                        break;
+                    }
+                }
+
                 ConstructorInfo fileCtor = _fsType.GetConstructor(new[] { typeof(FileInfo) });
-                if (getHolder == null || loadItem == null || fileCtor == null)
+                if (getHolder == null || loadItem == null || allFiles == null || fileCtor == null)
                 {
                     WarnOnce("sweep: shapes unavailable (holder=" + (getHolder != null)
-                             + " loadItem=" + (loadItem != null) + " fileCtor=" + (fileCtor != null) + ")");
+                             + " loadItem=" + (loadItem != null) + " files=" + (allFiles != null)
+                             + " fileCtor=" + (fileCtor != null) + ")");
                     return;
                 }
 
-                int scanned = 0, replaced = 0;
+                FieldInfo badField = null;
+                try
+                {
+                    Type baseContent = Refl.T("Verse.BaseContent");
+                    badField = baseContent?.GetField("BadTex", BindingFlags.Public | BindingFlags.Static)
+                               ?? baseContent?.GetField("BadTex", BindingFlags.NonPublic | BindingFlags.Static);
+                }
+                catch { }
+
+                int scanned = 0, unusable = 0, replaced = 0;
                 for (int i = 0; i < mods.Count; i++)
                 {
                     object mod = mods[i];
@@ -445,33 +486,52 @@ namespace AgentTouchFix
                     object trie = trieMember == null ? null : trieMember.Get(holder);
                     MethodInfo trieAdd = trie == null ? null : trie.GetType().GetMethod("Add", new[] { typeof(string) });
 
-                    Member rootMember = Member.Resolve(mod.GetType(), "rootDirInt", false, true);
-                    DirectoryInfo root = rootMember == null ? null : rootMember.Get(mod) as DirectoryInfo;
-                    if (root == null || !root.Exists) continue;
-                    string textures = Path.Combine(root.FullName, "Textures");
-                    if (!Directory.Exists(textures)) continue;
-
-                    foreach (string path in EnumerateDds(textures))
+                    object filesValue;
+                    try { filesValue = allFiles.Invoke(null, new object[] { mod, "Textures/", null, null }); }
+                    catch (Exception e)
                     {
+                        WarnOnce("sweep: file list " + mod + ": " + Short(e));
+                        continue;
+                    }
+                    IDictionary files = filesValue as IDictionary;
+                    if (files == null) continue;
+
+                    foreach (DictionaryEntry pair in files)
+                    {
+                        string path = pair.Key as string;
+                        if (string.IsNullOrEmpty(path) ||
+                            !path.EndsWith(".dds", StringComparison.OrdinalIgnoreCase)) continue;
                         scanned++;
-                        string rel = path.Substring(textures.Length).TrimStart('/', '\\').Replace('\\', '/');
-                        if (rel.Length <= 4) continue;
-                        string key = rel.Substring(0, rel.Length - 4);
+
+                        string key = ContentSweepDecision.KeyFromPath(path);
+                        if (key == null) continue;
+                        bool present = list.Contains(key);
+                        object current = present ? list[key] : null;
+                        if (_badTex == null && badField != null)
+                        {
+                            try { _badTex = badField.GetValue(null); } catch { }
+                        }
+                        if (!ContentSweepDecision.Retry(present, current == null,
+                                                        ReferenceEquals(current, _badTex))) continue;
+                        unusable++;
+
+                        FileInfo info = pair.Value as FileInfo;
+                        if (info == null) continue;
+                        object virtualFile = fileCtor.Invoke(new object[] { info });
 
                         byte[] body;
                         AltHeader h;
                         AltChoice choice;
-                        object virtualFile = fileCtor.Invoke(new object[] { new FileInfo(path) });
                         if (!Analyse(virtualFile, out body, out h, out choice)) continue;
 
                         object item;
                         try { item = loadItem.Invoke(null, new[] { virtualFile }); }
-                        catch (Exception e) { WarnOnce("sweep: load " + rel + ": " + Short(e)); continue; }
+                        catch (Exception e) { WarnOnce("sweep: load " + path + ": " + Short(e)); continue; }
                         if (item == null) continue;
 
                         Member contentMember = Member.Resolve(item.GetType(), "contentItem", false, true);
                         object content = contentMember == null ? null : contentMember.Get(item);
-                        if (content == null) continue;
+                        if (content == null || ReferenceEquals(content, _badTex)) continue;
 
                         list[key] = content;
                         if (trieAdd != null) { try { trieAdd.Invoke(trie, new object[] { key }); } catch { } }
@@ -480,21 +540,10 @@ namespace AgentTouchFix
                 }
 
                 if (replaced > 0 || scanned > 0)
-                    Refl.Info("ddsalt: first pass swept " + scanned + " loose .dds, replaced " + replaced
-                              + " content entr" + (replaced == 1 ? "y" : "ies"));
+                    Refl.Info("ddsalt: first pass swept " + scanned + " DDS entries from loose+pack content,"
+                              + " unusable=" + unusable + ", replaced=" + replaced);
             }
             catch (Exception e) { WarnOnce("sweep: " + Short(e)); }
-        }
-
-        private static List<string> EnumerateDds(string root)
-        {
-            var list = new List<string>();
-            foreach (string pattern in new[] { "*.dds", "*.DDS" })
-            {
-                try { list.AddRange(Directory.GetFiles(root, pattern, SearchOption.AllDirectories)); }
-                catch (Exception e) { WarnOnce("scan " + root + ": " + Short(e)); }
-            }
-            return list;
         }
 
         // ------------------------------------------------------------------ build
