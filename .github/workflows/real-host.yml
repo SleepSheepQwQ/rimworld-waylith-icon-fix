@@ -70,7 +70,7 @@ jobs:
           uname -srm
           test -f .waylith-host/dlls/Assembly-CSharp.dll
           test -f .waylith-host/dlls/Waylith.dll
-          test -x .waylith-host/ci/assemble.sh
+          test -f .waylith-host/ci/assemble.sh
           md5sum .waylith-host/dlls/Assembly-CSharp.dll .waylith-host/dlls/Waylith.dll
 
       - name: Texture and assembly tooling
