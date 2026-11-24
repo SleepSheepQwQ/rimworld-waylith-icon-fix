@@ -30,11 +30,11 @@ successful repair.
 | DXT3/DXT2/DXT4 refused by the loader | implemented | real host runs `45309425523`, `45309757735` |
 | One-mip block texture turns transparent when minified | implemented | ddsprefix `Mip1`/`Dxt3` fixtures |
 | DXT1 punch-through alpha uploaded as opaque BC1 | implemented | ddsprefix `Dxt1Alpha` |
-| Undecodable DDS shadows a working PNG | implemented | `ShadowFix`; dedicated CI workflow |
+| Undecodable DDS shadows a working PNG | implemented | isolated real-host run `45314136663` |
 | Animal list synthesises `CutoutComplexUI` on the Thing overload | implemented | 2.7.7 device confirmation |
 | Unique weapon: `Thing.def` field missed | implemented | `IconFieldFix`; Bench contract |
-| Unique weapon: collection folder used as texture path | implemented | `IconVariantPath`; TexSt + uniqueicon gate |
-| Unique weapon: pack DDS loaded before the prefix | implemented | `DdsPrefixAlt.SweepContent` enumerates loose and pack files |
+| Unique weapon: collection folder used as texture path | implemented | uniqueicon run `45314135780`: four layouts 5/0, no mask picks |
+| Unique weapon: pack DDS loaded before the prefix | implemented | `DdsPrefixAlt.SweepContent` + post-mount sweep; real-pack gate pending |
 | Later-mod `BadTex` hides an earlier-mod texture | implemented | `ContentFallbackFix` treats `BadTex` as a local miss |
 | Static atlas keeps a transparent tile for a failed blit | implemented | run `45312477319`: control 2/2 tiles; patched live kept/dead removed 1/1 |
 

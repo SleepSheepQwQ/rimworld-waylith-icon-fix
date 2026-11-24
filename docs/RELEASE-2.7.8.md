@@ -35,3 +35,16 @@
 
 如果仍有空白项，只需提供：屏幕/列表名称、物品英文 `defName`、完整 Mod 列表，以及重启后是否
 仍然出现。GlyphFix 不要求上传设备日志。
+
+## 已通过的构建与真宿主检查
+
+- 公共构建 `45314800616`：290 条图标/决策测试、86 条 DDS 测试、Benchmark、脚本语法和打包全绿。
+- DDS loader `45309425523`：BC4、DX10 BC3、DXT3、单 mip、DXT1 alpha 修复；旧 5/0、4/4 门禁不回归。
+- Atlas `45312477319`：control 2 tiles，修复后 live 保留、dead 移除（1/1）。
+- 特殊武器 `45314135780`：真实、plain、`.png.dds`、DX10 BC4 四种布局均为 5/0、DRAW、0 blank。
+- 同名 DDS/PNG `45314136663`：control 缺图，修复后返回与 PNG 完全一致的 128×128 像素。
+
+本地产物：
+
+- `GlyphFix.dll` SHA-256 `d630449f88cfd8d527d7a00d68e71cb10789e8fd5c2e19b99059e282ef406167`
+- `GlyphFix.zip` SHA-256 `40271b666f0285bb051d083ef8a0e39dfcd9faab6395e20e64586a5d5b2c893d`

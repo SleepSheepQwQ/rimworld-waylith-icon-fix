@@ -70,6 +70,13 @@ if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 else
     echo "source archive detected; git diff check skipped"
 fi
+V_CS=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$ROOT/mod/AgentTouchFix.csproj")
+V_XML=$(sed -n 's:.*<modVersion>\(.*\)</modVersion>.*:\1:p' "$ROOT/mod/About/About.xml")
+if [ -z "$V_CS" ] || [ "$V_CS" != "$V_XML" ]; then
+    echo "version mismatch: csproj=${V_CS:-missing} About.xml=${V_XML:-missing}" >&2
+    exit 1
+fi
+echo "version $V_CS"
 
 if [ "$RUN_TESTS" -eq 1 ]; then
     echo "[2/5] tests"
