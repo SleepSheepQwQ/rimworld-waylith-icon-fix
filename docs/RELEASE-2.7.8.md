@@ -50,4 +50,4 @@ pack 通道的精简 headless 资产包被 harness 自身判为 `Corrupt central
 本地产物：
 
 - `GlyphFix.dll` SHA-256 `d630449f88cfd8d527d7a00d68e71cb10789e8fd5c2e19b99059e282ef406167`
-- `GlyphFix.zip` SHA-256 `40271b666f0285bb051d083ef8a0e39dfcd9faab6395e20e64586a5d5b2c893d`
+- `GlyphFix.zip` SHA-256 `789d1084db22069d6d03c67131af99ed3b2740d8cc6f04ff065bea468f2eb5fe`
