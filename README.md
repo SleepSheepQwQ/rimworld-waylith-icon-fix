@@ -122,8 +122,9 @@ To stage it into a user-supplied Mods directory (never a hard-coded device path)
 ```
 
 The installer refuses to overwrite an existing install unless `--force` is supplied; with
-`--force`, the old folder is moved to a timestamped backup first. It does not edit
-`ModsConfig.xml`; enable GlyphFix in the game's mod list and restart.
+`--force`, the old folder is moved under `Mods/.glyphfix-backups/` first. It matches an existing
+`glyphfix` folder case-insensitively, so it does not create a duplicate package.
+It does not edit `ModsConfig.xml`; enable GlyphFix in the game's mod list and restart.
 
 ## Requirements
 

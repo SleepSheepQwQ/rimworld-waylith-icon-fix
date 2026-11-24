@@ -50,7 +50,8 @@
 ```
 
 脚本不会改 `ModsConfig.xml`，也不会硬编码设备路径。已有 GlyphFix 默认不覆盖；加 `--force`
-时会先把旧目录移动成带时间戳的备份。
+时会把旧目录移动到 `Mods/.glyphfix-backups/` 下的带时间戳备份。检测忽略大小写，不会同时生成
+`glyphfix` 与 `GlyphFix` 两个重复包。
 
 ## 环境
 

@@ -120,13 +120,25 @@ echo "  - DDS format/mip/shadow, case/extension, BadTex, and atlas-hole fallback
 
 if [ -n "$INSTALL_ROOT" ]; then
     mkdir -p "$INSTALL_ROOT"
-    TARGET="$INSTALL_ROOT/GlyphFix"
+    TARGET=""
+    for candidate in "$INSTALL_ROOT"/*; do
+        [ -d "$candidate" ] || continue
+        leaf=$(basename "$candidate")
+        lowered=$(printf '%s' "$leaf" | tr '[:upper:]' '[:lower:]')
+        if [ "$lowered" = "glyphfix" ]; then
+            TARGET=$candidate
+            break
+        fi
+    done
+    [ -n "$TARGET" ] || TARGET="$INSTALL_ROOT/GlyphFix"
     if [ -e "$TARGET" ] && [ "$FORCE" -ne 1 ]; then
         echo "refusing to overwrite existing $TARGET (pass --force)" >&2
         exit 1
     fi
     if [ -e "$TARGET" ]; then
-        BACKUP="$TARGET.backup.$(date +%Y%m%d-%H%M%S)"
+        BACKUP_DIR="$INSTALL_ROOT/.glyphfix-backups"
+        mkdir -p "$BACKUP_DIR"
+        BACKUP="$BACKUP_DIR/$(basename "$TARGET").$(date +%Y%m%d-%H%M%S)"
         mv "$TARGET" "$BACKUP"
         echo "previous install moved to $BACKUP"
     fi
