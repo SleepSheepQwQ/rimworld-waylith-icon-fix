@@ -44,6 +44,11 @@ jobs:
           echo "csproj=$V_CS about=$V_XML"
           test -n "$V_CS" && test "$V_CS" = "$V_XML" || { echo "::error::version mismatch"; exit 1; }
 
+      - name: Player repair script
+        run: |
+          test -x repair-glyphfix.sh
+          bash -n repair-glyphfix.sh
+
       - name: Unit tests (shader math + icon routing)
         run: dotnet test tests/TexSt/TexSt.csproj -c Release -v minimal
 
