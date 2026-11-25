@@ -8,7 +8,9 @@ using System.Text.Json;
 using System.Threading;
 using HarmonyLib;
 using RimWorld;
+using RimWorld.Planet;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Verse;
 
 internal static class StartupHook
@@ -19,7 +21,7 @@ internal static class StartupHook
         ?? Path.Combine(Directory.GetCurrentDirectory(), "animal-verify");
     private static readonly string EventsPath = Path.Combine(OutDir, "events.jsonl");
     private static readonly object WriteLock = new object();
-    private static int _started, _done, _workerCalls;
+    private static int _started, _done, _phase2, _workerCalls;
     private static string _workerDef = "-", _workerTex = "-", _workerMat = "-";
 
     public static void Initialize()
@@ -108,7 +110,62 @@ internal static class StartupHook
                 ["bootstrapError"] = startupError
             });
 
-            foreach (string species in Species) Probe(species);
+            if (!SafeInPlay())
+            {
+                Event("scene", new Dictionary<string, object> { ["action"] = "load-play" });
+                SceneManager.LoadScene("Play");
+            }
+            new Thread(WaitForMap) { IsBackground = true, Name = "animalverify-map-waiter" }.Start();
+        }
+        catch (Exception e)
+        {
+            Event("result", new Dictionary<string, object>
+            {
+                ["result"] = "phase-exception",
+                ["error"] = Error(e),
+                ["stack"] = e.StackTrace
+            });
+            Environment.Exit(5);
+        }
+    }
+
+    private static void WaitForMap()
+    {
+        while (!Volatile.Read(ref _done))
+        {
+            Map map = null;
+            try { map = Current.Game?.CurrentMap; } catch { }
+            if (map == null)
+            {
+                try { map = Find.AnyPlayerHomeMap; } catch { }
+            }
+            if (map != null)
+            {
+                Map found = map;
+                Event("map", new Dictionary<string, object>
+                {
+                    ["status"] = "published",
+                    ["size"] = map.Size.x + "x" + map.Size.z
+                });
+                LongEventHandler.QueueLongEvent(() => Phase2(found), null, false, null);
+                return;
+            }
+            Thread.Sleep(100);
+        }
+    }
+
+    private static void Phase2(Map map)
+    {
+        if (Interlocked.Exchange(ref _phase2, 1) != 0) return;
+        try
+        {
+            Event("map", new Dictionary<string, object>
+            {
+                ["status"] = "ready",
+                ["mesh"] = MapMeshState(map),
+                ["biome"] = map.Biome?.defName
+            });
+            foreach (string species in Species) Probe(map, species);
             Event("result", new Dictionary<string, object> { ["result"] = "done" });
             Console.WriteLine($"{T} RESULT=DONE");
             Console.Out.Flush();
@@ -126,7 +183,7 @@ internal static class StartupHook
         }
     }
 
-    private static void Probe(string species)
+    private static void Probe(Map map, string species)
     {
         var rec = new Dictionary<string, object> { ["species"] = species };
         try
@@ -139,6 +196,12 @@ internal static class StartupHook
 
             Pawn pawn = PawnGenerator.GeneratePawn(kind, (Faction)null);
             if (pawn == null) throw new InvalidOperationException("PawnGenerator returned null");
+            IntVec3 cell;
+            if (!CellFinder.TryFindRandomCellNear(map.Center, map, 30, c => c.Standable(map), out cell))
+                cell = map.Center;
+            GenSpawn.Spawn(pawn, cell, map, WipeMode.Vanish);
+            rec["spawned"] = pawn.Spawned;
+            rec["cell"] = cell.x + "," + cell.y + "," + cell.z;
             pawn.Drawer?.renderer?.EnsureGraphicsInitialized();
             Graphic body = pawn.Drawer?.renderer?.BodyGraphic;
             Material bodyMat = body?.MatAt(Rot4.East);
@@ -175,6 +238,7 @@ internal static class StartupHook
         catch (Exception e)
         {
             rec["error"] = Error(e);
+            rec["stack"] = e.StackTrace;
         }
         Event("animal", rec);
         Console.WriteLine($"{T} " + JsonSerializer.Serialize(rec));
@@ -224,5 +288,32 @@ internal static class StartupHook
         {
             Console.Error.WriteLine($"{T} event-write-failed {Error(e)}");
         }
+    }
+
+    private static bool SafeInPlay()
+    {
+        try { return GenScene.InPlayScene; } catch { return false; }
+    }
+
+    private static string MapMeshState(Map map)
+    {
+        try
+        {
+            MapDrawer drawer = map.mapDrawer;
+            if (drawer == null) return "no-drawer";
+            int sx = drawer.SectionCount.x;
+            int sz = drawer.SectionCount.z;
+            int total = sx * sz;
+            Section[,] sections = drawer.sections;
+            int built = 0;
+            if (sections != null)
+                for (int i = 0; i < sx; i++)
+                    for (int j = 0; j < sz; j++)
+                        if (sections[i, j] != null) built++;
+            if (sections != null && built == total) return $"complete({built}/{total})";
+            drawer.sections = null;
+            return $"incomplete({built}/{total})->null";
+        }
+        catch (Exception e) { return "probe-failed:" + e.GetType().Name; }
     }
 }
