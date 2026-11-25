@@ -80,7 +80,9 @@ jobs:
           mkdir -p dist/GlyphFix/About dist/GlyphFix/Assemblies
           cp mod/About/About.xml dist/GlyphFix/About/
           cp "$DLL" dist/GlyphFix/Assemblies/
-          (cd dist/GlyphFix && zip -qr ../../GlyphFix.zip .)
+          # Keep the mod folder as the zip root so extracting directly into Mods/ yields
+          # Mods/GlyphFix/{About,Assemblies}, matching the player repair script.
+          (cd dist && zip -qr ../GlyphFix.zip GlyphFix)
           echo "--- artifact ---"
           md5sum "$DLL" GlyphFix.zip
           stat -c '%n %s bytes' "$DLL" GlyphFix.zip
