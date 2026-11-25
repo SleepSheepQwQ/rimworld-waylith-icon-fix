@@ -64,7 +64,10 @@ def main() -> int:
         need((d3.get("meanA") or 0) > 200, f"patched DXT3 alpha is visible (got {d3.get('meanA')})")
         need(max(d3.get("meanRGB") or (0, 0, 0)) > 5,
              f"patched DXT3 RGB is visible (got {d3.get('meanRGB')})")
-        need((d3.get("lumSd") or 0) > 0.1, f"patched DXT3 has non-flat visible pixels (got {d3.get('lumSd')})")
+        need(d3.get("meanRGB") == (0.0, 255.0, 0.0),
+             f"patched DXT3 preserves the expected opaque green fixture (got {d3.get('meanRGB')})")
+        need((d3.get("mip1lum") or 0) > 100,
+             f"patched DXT3 mip chain retains visible green (got {d3.get('mip1lum')})")
 
         sh = b.get("Shadow", {})
         pg = b.get("PngOnly", {})
