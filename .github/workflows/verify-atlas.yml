@@ -1,0 +1,114 @@
+name: verify-atlas
+
+# Re-runs the strict AtlasBake probe against this checkout's GlyphFix DLL.
+#
+# The public host's `verify/atlas-positive` branch runs a managed sentinel postfix at Priority.First:
+# the atlas page and the healthy source are marked resident, the bad source stays non-resident.
+# GlyphFix's Low-priority postfix must keep the healthy tile and unregister only the dead one.
+#
+# This is a deterministic proof of atlas registration/replacement-cache state, not a GPU pixel
+# readback. GitHub's hosted runner currently fails to create a GLFW Vulkan surface, so the lavapipe
+# pixel arm is deliberately not claimed here.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-atlas-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      - name: Checkout GlyphFix
+        uses: actions/checkout@v4
+        with:
+          path: glyphfix
+
+      - name: Checkout host Atlas probe
+        uses: actions/checkout@v4
+        with:
+          repository: SleepSheepQwQ/rimworld-waylith-re
+          ref: verify/atlas-positive
+          path: .waylith-host
+          token: ${{ github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install shader tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc
+
+      - name: Build GlyphFix, Atlas probe and shim
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          dotnet build glyphfix/mod/AgentTouchFix.csproj -c Release -v minimal
+          dotnet build .waylith-host/atlasfix/AtlasFix.csproj -c Release -v minimal
+
+          MOD=glyphfix/mod/bin/Release/net10.0/GlyphFix.dll
+          test -f "$MOD"
+          sha256sum "$MOD" | tee out/glyphfix-dll.txt
+
+          BIN=.waylith-host/atlasfix/bin/Release/net10.0
+          mkdir -p "$BIN/Rendering"
+          cp -a .waylith-host/game/Rendering/Shaders "$BIN/Rendering/"
+          gcc -O2 -shared -fPIC -o "$BIN/libvulkanshim.so" \
+            .waylith-host/atlasfix/vulkanshim_stub.c
+
+      - name: Managed sentinel control + patched gate
+        run: |
+          set -o pipefail
+          mkdir -p out
+          dotnet run --project .waylith-host/atlasfix/AtlasFix.csproj -c Release --no-build -- \
+            --dlls "$GITHUB_WORKSPACE/.waylith-host/dlls" \
+            --mod "$GITHUB_WORKSPACE/glyphfix/mod/bin/Release/net10.0/GlyphFix.dll" \
+            --out "$GITHUB_WORKSPACE/out/offline.md" \
+            2>&1 | tee out/offline.log
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Atlas icon regression"
+            echo
+            echo "- commit: \`${GITHUB_SHA}\`"
+            echo "- GlyphFix: \`$(cat out/glyphfix-dll.txt 2>/dev/null || echo missing)\`"
+            echo
+            echo "### managed sentinel (not GPU readback)"
+            echo '```'
+            grep -E '^\[(FACT|REAL|GPU|PASS|FAIL|SKIP|NOTE)\]|^RESULT|^##' \
+              out/offline.log | tail -n 120 || tail -n 40 out/offline.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Failure details
+        if: failure()
+        run: |
+          echo "=== offline ==="
+          tail -n 160 out/offline.log 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-atlas-${{ github.run_id }}
+          path: |
+            out/offline.log
+            out/*.md
+            out/glyphfix-dll.txt
+          if-no-files-found: warn

@@ -1,0 +1,127 @@
+name: verify-animals
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'mod/Source/IconFallbackFix.cs'
+      - 'mod/Source/IconFieldFix.cs'
+      - 'ci/regression/animal/**'
+      - '.github/workflows/verify-animals.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-animals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  animals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: glyphfix
+      - uses: actions/checkout@v4
+        with:
+          repository: SleepSheepQwQ/rimworld-waylith-re
+          path: .waylith-host
+          token: ${{ github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libstb-dev
+          python3 -m pip install --break-system-packages --quiet pillow
+      - name: Build host, current mod and probe
+        run: |
+          set -euo pipefail
+          dotnet build .waylith-host/ci/apphost/RimWorld.csproj -c Release -v minimal
+          dotnet build glyphfix/mod/AgentTouchFix.csproj -c Release -v minimal
+          dotnet build glyphfix/ci/regression/animal/AnimalVerify.csproj -c Release -v minimal \
+            -p:WaylithHost="$GITHUB_WORKSPACE/.waylith-host"
+      - name: Assemble host and animal fixtures
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          (
+            cd .waylith-host
+            bash ci/assemble.sh "$GITHUB_WORKSPACE/run"
+          ) 2>&1 | tee out/assemble.log
+
+          MOD=run/Mods/AnimalFixture
+          mkdir -p "$MOD/About" "$MOD/Textures/Things/Pawn/Animal/Ibex" \
+            "$MOD/Textures/Things/Pawn/Animal/Boomalope" \
+            "$MOD/Textures/Things/Pawn/Animal/Squirrel" \
+            "$MOD/Textures/Things/Pawn/Animal/Cow"
+          cat > "$MOD/About/About.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <ModMetaData>
+            <name>AnimalFixture</name>
+            <author>ci</author>
+            <packageId>waylith.animalverify.fixture</packageId>
+            <supportedVersions><li>1.7</li></supportedVersions>
+          </ModMetaData>
+          XML
+          for base in IbexMale IbexFemale; do
+            for direction in north east south west; do
+              cp .waylith-host/animalprobe/ibex_east.png \
+                "$MOD/Textures/Things/Pawn/Animal/Ibex/${base}_${direction}.png"
+            done
+          done
+          for direction in north east south west; do
+            cp .waylith-host/animalprobe/ibex_east.png \
+              "$MOD/Textures/Things/Pawn/Animal/Boomalope/Boomalope_${direction}.png"
+            cp .waylith-host/animalprobe/ibex_east.png \
+              "$MOD/Textures/Things/Pawn/Animal/Squirrel/Squirrel_${direction}.png"
+            cp .waylith-host/animalprobe/ibex_east.png \
+              "$MOD/Textures/Things/Pawn/Animal/Cow/Bull_${direction}.png"
+            cp .waylith-host/animalprobe/ibex_east.png \
+              "$MOD/Textures/Things/Pawn/Animal/Cow/Cow_${direction}.png"
+          done
+
+          mkdir -p run/Mods/glyphfix/About run/Mods/glyphfix/Assemblies
+          cp glyphfix/mod/About/About.xml run/Mods/glyphfix/About/
+          cp glyphfix/mod/bin/Release/net10.0/GlyphFix.dll run/Mods/glyphfix/Assemblies/
+          CFG="$HOME/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+          python3 - "$GITHUB_WORKSPACE/.waylith-host/ci/ModsConfig.xml" "$CFG/ModsConfig.xml" <<'PY'
+          import sys
+          src, dst = sys.argv[1:]
+          text = open(src, encoding="utf-8").read()
+          marker = "    <li>ludeon.rimworld.odyssey</li>"
+          text = text.replace(marker, marker +
+              "\n    <li>waylith.animalverify.fixture</li>" +
+              "\n    <li>sleepsheep.waylith.glyphfix</li>", 1)
+          open(dst, "w", encoding="utf-8").write(text)
+          print(text)
+          PY
+      - name: Run real animal icons
+        run: |
+          set +e
+          (
+            cd run
+            DOTNET_STARTUP_HOOKS="$GITHUB_WORKSPACE/glyphfix/ci/regression/animal/bin/Release/net10.0/AnimalVerify.dll" \
+            ANIMAL_OUT="$GITHUB_WORKSPACE/out" \
+            timeout 300 ./RimWorld -Headless -SuppressUnityStubs -DisableLogStackTraces
+          ) > out/host.log 2>&1
+          rc=$?
+          echo "$rc" > out/host_exit.txt
+          grep -aE '^\[ANIMALVERIFY\]|^\[AgentTouchFix\]' out/host.log | tail -n 200 || true
+          exit 0
+      - name: Gate
+        run: |
+          set -euo pipefail
+          python3 glyphfix/ci/regression/animal/gate.py out/events.jsonl \
+            --host-exit "$(cat out/host_exit.txt)" --summary out/summary.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: animal-verification-${{ github.run_id }}
+          path: out/**
+          if-no-files-found: warn
