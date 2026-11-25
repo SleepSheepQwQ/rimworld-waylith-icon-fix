@@ -84,8 +84,13 @@ def main() -> int:
     (about / "About.xml").write_text(ABOUT, encoding="utf-8")
 
     source = args.host / "ddsfix"
-    for name in ("bc7.dds", "bc5.dds", "dxt1_alpha.dds", "mip1.dds"):
-        shutil.copy2(source / name, textures / name)
+    for source_name, target_name in (
+        ("bc7.dds", "Bc7.dds"),
+        ("bc5.dds", "Bc5.dds"),
+        ("dxt1_alpha.dds", "Dxt1Alpha.dds"),
+        ("mip1.dds", "Mip1.dds"),
+    ):
+        shutil.copy2(source / source_name, textures / target_name)
 
     # Visible DXT3: 8x8 opaque green, not the old all-transparent fixture.
     (textures / "Dxt3.dds").write_bytes(dds("DXT3", 8, 8, visible_dxt3_8x8()))
