@@ -8,7 +8,9 @@ using System.Text.Json;
 using System.Threading;
 using HarmonyLib;
 using RimWorld;
+using RimWorld.Planet;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Verse;
 
 internal static class StartupHook
@@ -23,7 +25,7 @@ internal static class StartupHook
     private static readonly string EventsPath = Path.Combine(OutDir, "events.jsonl");
     private static readonly object WriteLock = new object();
 
-    private static int _started, _done, _workerCalls;
+    private static int _started, _done, _phase2, _workerCalls;
     private static bool? _grayAfterMod;
     private static string _workerDef = "";
     private static string _workerTexture = "";
@@ -155,6 +157,61 @@ internal static class StartupHook
                     o == "sleepsheep.waylith.agenttouchfix.grayfix")
             });
 
+            if (!SafeInPlay())
+            {
+                Event("scene", new Dictionary<string, object> { ["action"] = "load-play" });
+                SceneManager.LoadScene("Play");
+            }
+            new Thread(WaitForMap) { IsBackground = true, Name = "grayverify-map-waiter" }.Start();
+        }
+        catch (Exception e)
+        {
+            Event("result", new Dictionary<string, object>
+            {
+                ["result"] = "phase-exception",
+                ["error"] = Error(e),
+                ["stack"] = e.StackTrace
+            });
+            Environment.Exit(5);
+        }
+    }
+
+    private static void WaitForMap()
+    {
+        while (Volatile.Read(ref _done) == 0)
+        {
+            Map map = null;
+            try { map = Current.Game?.CurrentMap; } catch { }
+            if (map == null)
+            {
+                try { map = Find.AnyPlayerHomeMap; } catch { }
+            }
+            if (map != null)
+            {
+                Map found = map;
+                Event("map", new Dictionary<string, object>
+                {
+                    ["status"] = "published",
+                    ["size"] = map.Size.x + "x" + map.Size.z
+                });
+                LongEventHandler.QueueLongEvent(() => Phase2(found), null, false, null);
+                return;
+            }
+            Thread.Sleep(100);
+        }
+    }
+
+    private static void Phase2(Map map)
+    {
+        if (Interlocked.Exchange(ref _phase2, 1) != 0) return;
+        try
+        {
+            Event("map", new Dictionary<string, object>
+            {
+                ["status"] = "ready",
+                ["biome"] = map.Biome?.defName
+            });
+
             ThingDef def = DefDatabase<ThingDef>.GetNamedSilentFail(TargetDef);
             if (def == null) throw new InvalidOperationException("missing def " + TargetDef);
             Thing thing = ThingMaker.MakeThing(def, (ThingDef)null);
@@ -216,6 +273,11 @@ internal static class StartupHook
         try { return assembly.GetTypes(); }
         catch (ReflectionTypeLoadException e) { return e.Types.Where(t => t != null); }
         catch { return Array.Empty<Type>(); }
+    }
+
+    private static bool SafeInPlay()
+    {
+        try { return GenScene.InPlayScene; } catch { return false; }
     }
 
     private static string Signature(MethodInfo method)
