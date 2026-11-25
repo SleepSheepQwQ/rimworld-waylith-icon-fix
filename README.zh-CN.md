@@ -8,7 +8,7 @@
 
 ## 修了什么
 
-2.7.8 覆盖玩家最常见的四类界面：
+2.7.9 覆盖玩家最常见的四类界面：
 
 - **建造菜单**：`BadTex`、无法渲染的 `CutoutComplexUI`、错误集合路径；
 - **殖民者与物品列表**：Thing/Def 两级图标回退，材质坏但贴图仍在的情况；
@@ -17,6 +17,9 @@
 
 底层同时修复 DDS 格式与空洞 mip、DDS 顶掉 PNG、后加载模组的 `BadTex` 遮住前序有效图，
 以及静态 Atlas 用透明 tile 替换源图的问题。完整矩阵见 `docs/IMAGE-COMPLETENESS.md`。
+
+2.7.9 另外修复了建造 Def 在材质尚未解析时被过早缓存的问题：即使 `CutoutComplexUI` 在首次
+绘制之后才写入，下一次建造菜单绘制仍会重新检查并摘下坏材质。
 
 **一、建造菜单图标空白。** `ThingDef.uiIcon` 在移植版里会变成 `BaseContent.BadTex`——因为图形材质被解析成 `CutoutComplexUI`，而这张材质在本移植版永远拿不到可读贴图。GlyphFix 在绘制时直接从 graphic 的贴图路径补 `uiIcon`，并把渲染不出东西的图标材质摘掉。
 

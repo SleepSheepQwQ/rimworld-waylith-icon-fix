@@ -3,7 +3,7 @@
 ## 一句话
 
 本仓库是 **GlyphFix**：一个 Harmony 模组，修复 RimWorld 1.7 安卓移植版 `com.ports1de.waylith`
-（Waylith 引擎，1.7.9795）的图标/贴图渲染缺陷。当前发布版 **2.7.8**。
+（Waylith 引擎，1.7.9795）的图标/贴图渲染缺陷。当前发布版 **2.7.9**。
 
 ## 现状
 
@@ -42,13 +42,21 @@
 `ContentFallbackFix` 不再让 `BadTex` 阻止查找前序模组；`AtlasBakeFix` 移除失败贴图留下的透明
 tile。最终门禁见 `docs/IMAGE-COMPLETENESS.md` 与 `docs/VERIFICATION.md`。
 
+## 2.7.9
+
+修复建造 Def 的延迟材质缓存：首个 `ThingIcon(ThingDef)` 调用可能早于
+`ResolveIcon/PostLoad` 写入 `uiIconMaterial`。旧实现把中间状态记入 `_done`，之后
+`CutoutComplexUI` 永远不会被检查。2.7.9 对 ThingDef 路径每次重新检查材质，Thing 实例仍保留
+有界缓存，并加入“先绘制、后写入坏材质、再次绘制必须修复”的执行级门禁。
+
 ## 硬约束
 
-- **不碰设备**：不启动游戏、不 `am start`/`force-stop`、不读也不索取设备日志；一切验证在 CI 或离线
+- **设备操作可恢复**：真机验证前备份 `ModsConfig.xml` 和现有 Mod；不要清理无关数据；GlyphFix
+  与 GlyphDiag 的组合必须单独隔离。设备日志、tombstone 和实际加载 DLL hash 属于发布证据
 - **零配置**：不加用户开关，失败静默降级
 - **不改引擎全局行为**（例如 `Texture2D.name`），只在必要调用点窄口径修补
 - **不影响其他模组**：按精确签名打补丁，不做宽泛字符串匹配
-- 探针命令 timeout ≤ 15 秒；长任务放后台并通知
+- 长耗时探针必须有明确 timeout、可终止并上传原始证据
 
 ## 构建与测试
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, verify, package, and optionally install GlyphFix 2.7.8.
+# Build, verify, package, and optionally install GlyphFix 2.7.9.
 #
 # Usage:
 #   ./repair-glyphfix.sh
@@ -20,7 +20,7 @@ RUN_TESTS=1
 
 usage() {
     cat <<'EOF'
-Build, verify, package, and optionally install GlyphFix 2.7.8.
+Build, verify, package, and optionally install GlyphFix 2.7.9.
 
 Usage:
   ./repair-glyphfix.sh

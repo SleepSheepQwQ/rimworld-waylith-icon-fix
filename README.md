@@ -9,7 +9,7 @@ no APK rebuild.
 
 ## What it fixes
 
-2.7.8 covers the complete known recovery chain used by the four reported surfaces:
+2.7.9 covers the complete known recovery chain used by the four reported surfaces:
 
 - **build menu** — `BadTex`, unrenderable `CutoutComplexUI`, wrong collection/texture paths;
 - **colonist and item tables** — Thing/def icon fallback, cases where only a material or name is bad;
@@ -20,6 +20,10 @@ no APK rebuild.
 The broader layers also repair DDS formats and hollow mip chains, DDS/PNG shadowing, `BadTex`
 entries that hide an earlier mod's texture, and transparent static-atlas replacement tiles. The
 complete symptom-to-gate matrix is in `docs/IMAGE-COMPLETENESS.md`.
+
+2.7.9 also fixes a lifecycle cache bug where a buildable def could be marked healthy before its
+`CutoutComplexUI` material was assigned. The next build-menu draw now rechecks the def and drops a
+late invalid material.
 
 **1. Blank build-menu icons.** `ThingDef.uiIcon` ends up as `BaseContent.BadTex` because the
 graphic material resolves to a `CutoutComplexUI` material whose texture never becomes readable on

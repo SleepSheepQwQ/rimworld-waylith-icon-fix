@@ -3,7 +3,7 @@
   <name>GlyphFix</name>
   <author>SleepSheep</author>
   <packageId>sleepsheep.waylith.glyphfix</packageId>
-  <modVersion>2.7.8</modVersion>
+  <modVersion>2.7.9</modVersion>
   <supportedVersions><li>1.7</li></supportedVersions>
-  <description>Repairs the Waylith Android port's image-loss chain: blank build-menu and instance icons; invalid CutoutComplexUI materials with colour preserved; leaked masks in Graphic_Collection and *_m lookup keys; case and extension mismatches; undecodable DDS shadowing a working PNG; DX10 BC4/BC5/BC1/BC3 format mapping; DXT3/DXT2/DXT4 decoding; hollow one-mip chains; pack-backed and loose DDS repair through ModDdsLoader; BadTex entries hiding healthy earlier-mod textures; and static-atlas transparent replacement tiles. Unique-weapon fixtures now cover .png.dds plus DX10 BC4 with Graphic_Random and CutoutComplex. The icon hot path remains cached and bounded.</description>
+  <description>Repairs the Waylith Android port's image-loss chain: blank build-menu and instance icons; invalid CutoutComplexUI materials with colour preserved; late ThingDef icon-material assignment that previously poisoned draw caching; leaked masks in Graphic_Collection and *_m lookup keys; case and extension mismatches; undecodable DDS shadowing a working PNG; DX10 BC4/BC5/BC1/BC3 format mapping; DXT3/DXT2/DXT4 decoding; hollow one-mip chains; pack-backed and loose DDS repair through ModDdsLoader; BadTex entries hiding healthy earlier-mod textures; and static-atlas transparent replacement tiles. Unique-weapon fixtures cover .png.dds plus DX10 BC4 with Graphic_Random and CutoutComplex.</description>
 </ModMetaData>
