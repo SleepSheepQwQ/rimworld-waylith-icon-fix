@@ -45,8 +45,12 @@ jobs:
 
       - name: Find the software ICD
         run: |
-          ICD=$(find /usr -name 'lvp_icd*.json' 2>/dev/null | head -1)
+          ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' 2>/dev/null | head -1)
           echo "found ICD: ${ICD:-none}"
+          if [ -z "$ICD" ]; then
+            echo "::error::lavapipe ICD not found"
+            exit 1
+          fi
           echo "ICD=$ICD" >> "$GITHUB_ENV"
 
       - name: Compile shaders
