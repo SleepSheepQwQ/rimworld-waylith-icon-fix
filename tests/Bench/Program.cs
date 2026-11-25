@@ -85,7 +85,7 @@ namespace PrefixBench
             Measure("steady: icon ok + foreign material", SteadyMatDef, null, report, false);
             Measure("broken: icon null + foreign material", BrokenDef, null, report, false);
             Measure("Thing overload (def unwrapped)", ThingArg, null, report, false);
-            Measure("20000 defs, icon ok (rebuild at cap)", null, ManyDefs(), report, false);
+            Measure("20000 defs, icon ok (no def cache)", null, ManyDefs(), report, false);
         }
 
         /// <summary>The floor: what one hash lookup on the same comparer costs on this machine.</summary>
@@ -235,11 +235,18 @@ namespace PrefixBench
             Check(ReferenceEquals(kept.uiIconMaterial, switchMat), "iconpath=material keeps the material (switch honoured)");
             IconFieldFix.Init("plain");
 
-            // 4. a healthy def is remembered, so the next call is one lookup
+            // 4. a healthy def is deliberately NOT remembered: ResolveIcon/PostLoad may assign a bad
+            //    material after the first draw, so the next draw must re-check it.
             ResetMod();
             ThingDef steady = Healthy("Remembered");
             IconFieldFix.Prefix(Args(steady));
-            Check(Done().Contains(steady), "healthy def is remembered");
+            Check(!Done().Contains(steady), "healthy def is rechecked instead of cached");
+
+            // 4b. delayed material assignment must be repaired on the next draw.
+            steady.uiIconMaterial = new FakeMaterial("CutoutComplexUI_Late");
+            IconFieldFix.Prefix(Args(steady));
+            Check(steady.uiIconMaterial == null,
+                  "late CutoutComplexUI material is dropped despite an earlier healthy draw");
 
             // 5. a def that could not be repaired is NOT remembered - it must be retried
             ResetMod();
@@ -256,11 +263,17 @@ namespace PrefixBench
             IconFieldFix.Prefix(new object[] { null, null });
             Check(Done().Count == 0, "short/null arguments are ignored");
 
-            // 7. the def set is bounded: past 4096 entries it is dropped, never grown
+            // 7. Thing entries remain cached but bounded. Def-only paths intentionally add no cache
+            //    entries; Thing paths may remember both the Thing and the def behind it.
             ResetMod();
-            for (int i = 0; i < 5000; i++) IconFieldFix.Prefix(Args(Healthy("Cap" + i)));
+            for (int i = 0; i < 5000; i++)
+            {
+                var t = new Thing();
+                t.def = Healthy("Cap" + i);
+                IconFieldFix.Prefix(Args(t));
+            }
             int size = Done().Count;
-            Check(size > 0 && size <= 4096, "def set stays within 4096 entries (was " + size + ")");
+            Check(size > 0 && size <= 4096, "Thing cache stays within 4096 entries (was " + size + ")");
 
             // 8. the name cache is bounded too
             ResetMod();
