@@ -11,6 +11,11 @@ name: verify-atlas
 # pixel arm is deliberately not claimed here.
 
 on:
+  push:
+    paths:
+      - 'mod/Source/AtlasBakeFix.cs'
+      - 'mod/Source/AtlasBakeDecision.cs'
+      - '.github/workflows/verify-atlas.yml'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SleepSheepQwQ/rimworld-waylith-re
-          ref: verify/atlas-positive
+          ref: 8919ad65a2451339b8296a38c661eda549b1bc8f
           path: .waylith-host
           token: ${{ github.token }}
           fetch-depth: 1
