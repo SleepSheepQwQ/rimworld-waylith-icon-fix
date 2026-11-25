@@ -100,8 +100,8 @@ def main() -> int:
     files = sorted(p.relative_to(mod).as_posix() for p in mod.rglob("*") if p.is_file())
     for relative in files:
         print(f"ddsstrict file={relative} bytes={(mod / relative).stat().st_size}")
-    if len(files) != 8:
-        print(f"expected 8 files, wrote {len(files)}", file=sys.stderr)
+    if len(files) != 9:
+        print(f"expected 9 files, wrote {len(files)}", file=sys.stderr)
         return 2
     return 0
 
