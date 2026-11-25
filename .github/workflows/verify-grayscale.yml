@@ -1,0 +1,120 @@
+name: verify-grayscale
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'mod/Source/UvFix.cs'
+      - 'ci/regression/grayscale/**'
+      - '.github/workflows/verify-grayscale.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-grayscale-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grayscale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: glyphfix
+      - uses: actions/checkout@v4
+        with:
+          repository: SleepSheepQwQ/rimworld-waylith-re
+          path: .waylith-host
+          token: ${{ github.token }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libstb-dev
+          python3 -m pip install --break-system-packages --quiet pillow
+      - name: Build host, current mod and probe
+        run: |
+          set -euo pipefail
+          dotnet build .waylith-host/ci/apphost/RimWorld.csproj -c Release -v minimal
+          dotnet build glyphfix/mod/AgentTouchFix.csproj -c Release -v minimal
+          dotnet build glyphfix/ci/regression/grayscale/GrayscaleVerify.csproj -c Release -v minimal \
+            -p:WaylithHost="$GITHUB_WORKSPACE/.waylith-host"
+      - name: Assemble host and stage current mod
+        run: |
+          set -euo pipefail
+          mkdir -p out/control out/patched
+          (
+            cd .waylith-host
+            bash ci/assemble.sh "$GITHUB_WORKSPACE/run"
+          ) 2>&1 | tee out/assemble.log
+          mkdir -p run/Mods/glyphfix/About run/Mods/glyphfix/Assemblies
+          cp glyphfix/mod/About/About.xml run/Mods/glyphfix/About/
+          cp glyphfix/mod/bin/Release/net10.0/GlyphFix.dll run/Mods/glyphfix/Assemblies/
+      - name: "Control: grayscale request without GlyphFix"
+        run: |
+          set +e
+          CFG="$HOME/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+          cp .waylith-host/ci/ModsConfig.xml "$CFG/ModsConfig.xml"
+          rm -rf run/Mods/glyphfix
+          (
+            cd run
+            DOTNET_STARTUP_HOOKS="$GITHUB_WORKSPACE/glyphfix/ci/regression/grayscale/bin/Release/net10.0/GrayscaleVerify.dll" \
+            GRAY_MODE=control GRAY_OUT="$GITHUB_WORKSPACE/out/control" \
+            timeout 300 ./RimWorld -Headless -SuppressUnityStubs -DisableLogStackTraces
+          ) > out/control/host.log 2>&1
+          echo "$?" > out/control/host_exit.txt
+          grep -aE '^\[GRAYVERIFY\]|^\[AgentTouchFix\]' out/control/host.log | tail -n 120 || true
+          exit 0
+      - name: "Patched: grayscale request with current GlyphFix"
+        run: |
+          set +e
+          CFG="$HOME/.config/unity3d/Ludeon Studios/RimWorld by Ludeon Studios/Config"
+          mkdir -p run/Mods/glyphfix/About run/Mods/glyphfix/Assemblies
+          cp glyphfix/mod/About/About.xml run/Mods/glyphfix/About/
+          cp glyphfix/mod/bin/Release/net10.0/GlyphFix.dll run/Mods/glyphfix/Assemblies/
+          python3 - "$GITHUB_WORKSPACE/.waylith-host/ci/ModsConfig.xml" "$CFG/ModsConfig.xml" <<'PY'
+          import sys
+          src, dst = sys.argv[1:]
+          text = open(src, encoding="utf-8").read()
+          marker = "    <li>ludeon.rimworld.odyssey</li>"
+          text = text.replace(marker, marker + "\n    <li>sleepsheep.waylith.glyphfix</li>", 1)
+          open(dst, "w", encoding="utf-8").write(text)
+          print(text)
+          PY
+          (
+            cd run
+            DOTNET_STARTUP_HOOKS="$GITHUB_WORKSPACE/glyphfix/ci/regression/grayscale/bin/Release/net10.0/GrayscaleVerify.dll" \
+            GRAY_MODE=patched GRAY_OUT="$GITHUB_WORKSPACE/out/patched" \
+            timeout 300 ./RimWorld -Headless -SuppressUnityStubs -DisableLogStackTraces
+          ) > out/patched/host.log 2>&1
+          echo "$?" > out/patched/host_exit.txt
+          grep -aE '^\[GRAYVERIFY\]|^\[AgentTouchFix\]' out/patched/host.log | tail -n 160 || true
+          exit 0
+      - name: Gate
+        run: |
+          set -euo pipefail
+          python3 glyphfix/ci/regression/grayscale/gate.py \
+            out/control/events.jsonl out/patched/events.jsonl \
+            --control-exit "$(cat out/control/host_exit.txt)" \
+            --patched-exit "$(cat out/patched/host_exit.txt)"
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Disabled-command grayscale icon"
+            echo
+            grep -aE '^\[GRAYVERIFY\]|^\[AgentTouchFix\] grayfix' \
+              out/control/host.log out/patched/host.log 2>/dev/null | tail -n 80 || true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grayscale-verification-${{ github.run_id }}
+          path: out/**
+          if-no-files-found: warn
