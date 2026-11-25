@@ -18,9 +18,9 @@ from pathlib import Path
 
 ABOUT = """<?xml version="1.0" encoding="utf-8"?>
 <ModMetaData>
-  <name>DdsStrict</name>
+  <name>DdsProbe</name>
   <author>ci</author>
-  <packageId>waylith.ddsstrict</packageId>
+  <packageId>waylith.ddsprobe</packageId>
   <supportedVersions><li>1.7</li></supportedVersions>
 </ModMetaData>
 """
@@ -74,11 +74,11 @@ def main() -> int:
     parser.add_argument("--host", type=Path, required=True)
     args = parser.parse_args()
 
-    mod = args.run / "Mods" / "DdsStrict"
+    mod = args.run / "Mods" / "DdsProbe"
     if mod.exists():
         shutil.rmtree(mod)
     about = mod / "About"
-    textures = mod / "Textures" / "Things" / "DdsStrict"
+    textures = mod / "Textures" / "Things" / "DdsProbe"
     about.mkdir(parents=True)
     textures.mkdir(parents=True)
     (about / "About.xml").write_text(ABOUT, encoding="utf-8")

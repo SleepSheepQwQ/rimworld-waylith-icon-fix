@@ -75,7 +75,7 @@ jobs:
           src, dst = sys.argv[1:]
           text = open(src, encoding="utf-8").read()
           marker = "<li>waylith.leakrepro</li>"
-          text = text.replace(marker, marker + "\n    <li>waylith.multileak</li>\n    <li>waylith.ddsstrict</li>", 1)
+          text = text.replace(marker, marker + "\n    <li>waylith.multileak</li>\n    <li>waylith.ddsprobe</li>", 1)
           open(dst, "w", encoding="utf-8").write(text)
           print(text)
           PY
@@ -97,7 +97,7 @@ jobs:
           src, dst = sys.argv[1:]
           text = open(src, encoding="utf-8").read()
           marker = "<li>waylith.leakrepro</li>"
-          text = text.replace(marker, marker + "\n    <li>waylith.multileak</li>\n    <li>waylith.ddsstrict</li>\n    <li>sleepsheep.waylith.glyphfix</li>", 1)
+          text = text.replace(marker, marker + "\n    <li>waylith.multileak</li>\n    <li>waylith.ddsprobe</li>\n    <li>sleepsheep.waylith.glyphfix</li>", 1)
           open(dst, "w", encoding="utf-8").write(text)
           print(text)
           PY
