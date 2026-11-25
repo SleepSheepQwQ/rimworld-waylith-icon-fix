@@ -131,7 +131,7 @@ internal static class StartupHook
 
     private static void WaitForMap()
     {
-        while (!Volatile.Read(ref _done))
+        while (Volatile.Read(ref _done) == 0)
         {
             Map map = null;
             try { map = Current.Game?.CurrentMap; } catch { }
