@@ -72,6 +72,7 @@ namespace BuildingGate
                     P("Bed"),
                     expectMaterial: "Cutout");
 
+                LateMaterialAssignmentCase();
                 DirectGetIconForCase();
                 NegativeControl();
             }
@@ -158,6 +159,40 @@ namespace BuildingGate
             Assert(name + ".texture", ReferenceEquals(got, expected),
                    "expected " + N(expected) + " got " + N(got));
             Assert(name + ".material", material == null, "material=" + N(material));
+        }
+
+        /// <summary>
+        /// A building def may be drawn once before ResolveIcon/PostLoad has assigned its UI material.
+        /// The first draw must not poison the steady-state cache: when CutoutComplexUI appears later,
+        /// the next building draw still has to drop it.
+        /// </summary>
+        private static void LateMaterialAssignmentCase()
+        {
+            const string name = "late-material-assignment";
+            Texture2D expected = P("Things/Building/Furniture/Bed/RoyalBed");
+            ThingDef def = D("RoyalBedLate", null, expected, null,
+                             new Graphic_Multi("Things/Building/Furniture/Bed/RoyalBed"));
+            InstallTextures(def, expected);
+            ResetCurrentStatics();
+            Widgets.Reset();
+
+            Widgets.ThingIcon(new Rect(0, 0, 34, 34), def);
+            Assert(name + ".initial-worker", Widgets.WorkerCalls == 1,
+                   "initial workerCalls=" + Widgets.WorkerCalls);
+            Assert(name + ".initial-material", def.uiIconMaterial == null,
+                   "initial material=" + N(def.uiIconMaterial));
+
+            // The game finishes ResolveIcon/PostLoad after an early UI probe.
+            def.uiIconMaterial = M("CutoutComplexUI_RoyalBed_south");
+            Widgets.Reset();
+            Widgets.ThingIcon(new Rect(0, 0, 34, 34), def);
+
+            Assert(name + ".second-worker", Widgets.WorkerCalls == 1,
+                   "second workerCalls=" + Widgets.WorkerCalls);
+            Assert(name + ".material-dropped", def.uiIconMaterial == null,
+                   "late def.uiIconMaterial=" + N(def.uiIconMaterial));
+            Assert(name + ".worker-material-dropped", Widgets.LastMaterial == null,
+                   "late worker material=" + N(Widgets.LastMaterial));
         }
 
         /// <summary>

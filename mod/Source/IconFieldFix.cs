@@ -108,7 +108,13 @@ namespace AgentTouchFix
 
                 if (unchecked(Environment.TickCount - _nextProbe) >= 0) Probe();   // int compare, ~1 ns
 
-                if (_done.Contains(arg)) return;   // steady state: one hash lookup, nothing else
+                // ThingDef icons can be observed before ResolveIcon/PostLoad has assigned
+                // uiIconMaterial. Caching that intermediate state permanently suppresses the later
+                // CutoutComplexUI drop, which is exactly the build-menu regression reintroduced by
+                // the broad "done" cache. The def path is cheap enough to re-check every draw;
+                // instance/Thing caching remains.
+                bool isDefPath = _defType != null && _defType.IsInstanceOfType(arg);
+                if (!isDefPath && _done.Contains(arg)) return;   // Thing steady state
 
                 object def = arg;
                 // Widgets.ThingIcon(Rect, Thing, ...) passes a Thing: repair the ThingDef behind it.
@@ -156,7 +162,7 @@ namespace AgentTouchFix
 
                 // Only something that came out drawable is remembered; a def (or Thing) that could not
                 // be repaired is retried on the next frame, the graphic may load later.
-                if (ok)
+                if (ok && !isDefPath)
                 {
                     Remember(def);
                     if (!ReferenceEquals(def, arg)) Remember(arg);   // Thing.def never changes
